@@ -1,0 +1,10 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^README\.md$
+^docs$
+^CURSOR_PROMPTS\.md$
+^terminals$
+^\.cursor$
+^\.github$
+^\.DS_Store$
+^LICENSE$

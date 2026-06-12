@@ -1,0 +1,67 @@
+# R session detritus
+.Rhistory
+.RData
+.Rapp.history
+.Ruserdata
+
+# RStudio / Positron / IDE
+.Rproj.user/
+*.Rproj
+
+# Build artefacts
+*.tar.gz
+*.tgz
+/scrnaExplorer.Rcheck/
+.Rcheck/
+
+# OS
+.DS_Store
+
+# Editor backups
+*~
+\#*\#
+.\#*
+
+# Cursor / agent context
+.cursor/
+terminals/
+
+# Local data (never commit datasets)
+/data/
+/datasets/
+/input/
+/inputs/
+/output/
+/outputs/
+/results/
+/tmp/
+/temp/
+/cache/
+/inst/extdata/local/
+
+# Common single-cell / analysis data formats
+*.h5ad
+*.h5seurat
+*.loom
+*.mtx
+*.mtx.gz
+*.h5
+*.hdf5
+*.rds
+*.rda
+*.rdata
+*.qs
+*.csv.gz
+*.tsv.gz
+*.parquet
+*.feather
+
+# Compressed archives often used for dataset bundles
+*.zip
+*.7z
+*.bz2
+*.xz
+
+# Allow tiny curated fixtures if you intentionally add them under tests/
+!tests/testthat/
+!tests/testthat/**
