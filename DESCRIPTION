@@ -42,7 +42,9 @@ Suggests:
     AUCell,
     dorothea,
     rhdf5,
-    digest
+    digest,
+    cellxgene.census,
+    reticulate
 Config/testthat/edition: 3
 URL: https://github.com/example/scrna-explorer
 BugReports: https://github.com/example/scrna-explorer/issues

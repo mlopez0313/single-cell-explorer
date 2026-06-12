@@ -51,8 +51,18 @@ Or from R:
 shiny::runApp("scrna-explorer")
 ```
 
-Then click **Load mock dataset** in the sidebar to populate the UI with an
-in-memory dataset. No real data is required to exercise the shell.
+Use the sidebar **Dataset** section to load data:
+
+- **Load mock dataset** — in-memory demo data (no files required).
+- **Load dataset** — enter a server-side path and choose a source
+  (`Auto-detect`, Seurat `.rds`, AnnData `.h5ad`, or a 10x Cellranger
+  directory). Load errors appear in the sidebar and the message log without
+  replacing the current dataset.
+- **CELLxGENE Census (experimental)** — available from the dataset source
+  picker in the sidebar. Requires `cellxgene.census` and `SeuratObject`
+  plus network access. You can browse studies for a selected organism,
+  pick one, and optionally add an extra SOMA cell filter to further narrow
+  the selected study before loading. Treat this as experimental app-level support.
 
 ### Requirements
 
@@ -82,6 +92,9 @@ missing — no NULL-pointer crashes.
 ds <- load_dataset("/path/to/object.rds")              # Seurat
 ds <- load_dataset("/path/to/10x_filtered_bc_matrix/") # 10x directory
 ds <- load_dataset("/path/to/data.h5ad")               # AnnData
+ds <- load_dataset("/cellxgene-census", source = "census",
+                   organism = "Homo sapiens",
+                   obs_value_filter = "cell_type == 'B cell'")
 ds <- mock_dataset()                                   # synthetic demo
 
 # All `ds` objects satisfy `dataset_schema()` and feed every module.
