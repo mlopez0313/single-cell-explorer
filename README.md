@@ -89,12 +89,18 @@ first click, the app will (in order):
 1. **load** an existing `inst/extdata/pbmc8k_demo.rds` if you've already
    built it (instant), or
 2. **auto-build** the artifact in-process when the build packages are
-   installed (Seurat + `TENxPBMCData` + friends; see below). Progress
-   appears in a `withProgress()` overlay. The artifact is saved to disk
-   so subsequent clicks across sessions go straight to (1), or
-3. **fall back** to the synthetic `mock_dataset()` with a workspace
-   warning that names what's missing -- so the UI always works even on
-   a fresh machine with no extra deps.
+   already installed (Seurat + `TENxPBMCData` + friends; see below).
+   Progress appears in a `withProgress()` overlay. The artifact is saved
+   to disk so subsequent clicks across sessions go straight to (1), or
+3. **offer to install** the missing demo-build packages when they aren't
+   present. A confirmation modal lists the packages and an estimated
+   install duration; on **Install + build** the app runs CRAN + Bioc
+   installs and the dataset build in a single `withProgress()` overlay,
+   then loads the result. The **Use mock dataset instead** button is
+   the no-install escape hatch and loads `mock_dataset()` immediately,
+   or
+4. **fall back** to `mock_dataset()` if any step fails -- the UI always
+   works.
 
 ## Demo dataset
 

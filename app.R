@@ -173,25 +173,119 @@ server <- function(input, output, session) {
         set_active_dataset(state, ds)
         return()
       }
+    } else if (demo_auto_build_enabled() && !can_build_demo_dataset()) {
+      # Tier 3a: artifact missing + build packages missing + auto-build
+      # is enabled. Offer to install the missing packages in-app.
+      # Clicking the button is consent to *attempt* the demo build, but
+      # CRAN+Bioc installs can take 5-15 minutes and pull in a lot of
+      # source compilation -- enough of a commitment that we ask once
+      # before kicking it off. Two action buttons in the modal:
+      #
+      #   `demo_install_confirm` -> install + build + load
+      #   `demo_use_mock`        -> dismiss + load mock_dataset()
+      #
+      # An X / outside click leaves no dataset loaded; the next button
+      # click re-triggers the same modal.
+      spec    <- .sce_packages_for_tier("demo")
+      need    <- c(spec$cran, spec$bioc)
+      missing <- need[!vapply(need, has_optional, logical(1))]
+      shiny::showModal(shiny::modalDialog(
+        title = "Install demo dataset packages?",
+        easyClose = FALSE,
+        size = "m",
+        shiny::p(sprintf(
+          paste0("The PBMC 8k demo needs %d additional package%s installed ",
+                 "before it can be built:"),
+          length(missing),
+          if (length(missing) == 1L) "" else "s")),
+        shiny::tags$ul(
+          class = "req-list",
+          lapply(missing, shiny::tags$li)),
+        shiny::p(class = "helper-text",
+                 "This is a one-time install (mostly Bioconductor). On ",
+                 "first run expect 5-15 minutes depending on your network ",
+                 "and whether the packages compile from source. After ",
+                 "installing, the app will also build and cache the PBMC ",
+                 "8k artifact (~30-90s). Subsequent sessions reuse both."),
+        footer = shiny::tagList(
+          shiny::actionButton("demo_use_mock",
+                              "Use mock dataset instead",
+                              class = "btn btn-default"),
+          shiny::actionButton("demo_install_confirm",
+                              "Install + build",
+                              class = "btn btn-primary")
+        )
+      ))
+      return()  # Wait for the user's modal response.
     } else {
-      # Tier 3: explain why we're not auto-building.
-      reason <- if (!demo_auto_build_enabled())
-                  "SCE_AUTO_BUILD_DEMO is disabled in the environment"
-                else demo_auto_build_status()
+      # Tier 3b: auto-build explicitly disabled. Fall back with a clear
+      # message.
       push_message(state,
                    sprintf(paste0(
-                     "Prepared PBMC 8k demo artifact not found at %s and ",
-                     "auto-build was skipped (%s). Falling back to ",
-                     "mock_dataset(). Run `Rscript scripts/build_pbmc8k_demo.R` ",
-                     "(or install the missing packages) to enable the ",
-                     "PBMC 8k demo."),
-                     demo_dataset_path(), reason),
+                     "Prepared PBMC 8k demo artifact not found at %s ",
+                     "and auto-build is disabled (SCE_AUTO_BUILD_DEMO=0). ",
+                     "Falling back to mock_dataset(). Unset ",
+                     "SCE_AUTO_BUILD_DEMO and click again to re-enable ",
+                     "in-app installs and builds."),
+                     demo_dataset_path()),
                    "warning")
     }
 
     # Final fallback: synthetic mock dataset.
     set_active_dataset(state, mock_dataset())
   })
+
+  # ---- Modal handlers: in-app install + build chain ------------------------
+  # `demo_install_confirm`: run sce_install_for_demo() inside a
+  # withProgress(), then ensure_demo_dataset() inside the same overlay.
+  # Failure at either step falls back to mock_dataset() with a precise
+  # error message.
+  observeEvent(input$demo_install_confirm, {
+    shiny::removeModal()
+    ds <- tryCatch(
+      shiny::withProgress(
+        message = "Preparing PBMC 8k demo dataset",
+        detail  = "installing dependencies + building (one-time cost)",
+        value   = 0,
+        {
+          # Phase 1: install missing demo packages, mapped onto [0, 0.55].
+          sce_install_for_demo(progress = function(fraction, detail = NULL) {
+            shiny::setProgress(value = fraction * 0.55, detail = detail)
+          })
+          # Phase 2: build + load the artifact, mapped onto (0.55, 1.0].
+          ensure_demo_dataset(
+            force_build = TRUE,
+            progress    = function(fraction, detail = NULL) {
+              shiny::setProgress(value = 0.55 + fraction * 0.45,
+                                 detail = detail)
+            })
+        }),
+      error = function(e) {
+        push_message(state, sprintf(
+          paste0("In-app demo setup failed: %s. Falling back to ",
+                 "mock_dataset(). For a richer error log, re-run from a ",
+                 "terminal: `Rscript scripts/setup_dev.R --demo`."),
+          conditionMessage(e)), "warning")
+        NULL
+      })
+    if (!is.null(ds)) {
+      set_active_dataset(state, ds)
+    } else {
+      set_active_dataset(state, mock_dataset())
+    }
+  }, ignoreInit = TRUE)
+
+  # `demo_use_mock`: user declined the install; load the synthetic
+  # dataset instead.
+  observeEvent(input$demo_use_mock, {
+    shiny::removeModal()
+    push_message(state,
+                 paste0("Loading mock_dataset() instead of PBMC 8k. ",
+                        "Click \"Load demo dataset\" again to revisit the ",
+                        "install offer."),
+                 "info")
+    set_active_dataset(state, mock_dataset())
+  }, ignoreInit = TRUE)
 
   # Start every enabled module's server exactly once. Module servers run for
   # the lifetime of the session even when their UI isn't visible -- this keeps

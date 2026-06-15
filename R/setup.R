@@ -204,3 +204,79 @@ sce_setup <- function(tier    = c("demo", "core", "full"),
   cat("You can now launch the app with `shiny::runApp(\".\")`.\n")
   invisible(list(cran = missing_cran, bioc = missing_bioc))
 }
+
+#' Install just the packages the PBMC 8k demo build needs.
+#'
+#' Used by the sidebar's "Load demo dataset" button when the user
+#' confirms an in-app install in the auto-build modal. Differs from
+#' `sce_setup(tier = "demo", auto = TRUE)` in two ways:
+#'
+#'   * it takes a `progress` callback so a Shiny `withProgress()` can
+#'     render incremental status across CRAN + Bioc installs;
+#'   * it always assumes consent (the modal click is the consent) and
+#'     never prompts.
+#'
+#' Returns invisibly on success; raises a clear error if any requested
+#' package still cannot be loaded after the install attempt (most
+#' commonly because of a Bioconductor compile failure or a missing
+#' system library).
+#'
+#' @param progress optional callback `function(fraction, detail = NULL)`.
+sce_install_for_demo <- function(progress = NULL) {
+  tick <- if (is.null(progress)) function(...) NULL
+          else function(fraction, detail = NULL)
+                 tryCatch(progress(fraction, detail = detail),
+                          error = function(e) NULL)
+
+  spec         <- .sce_packages_for_tier("demo")
+  missing_cran <- spec$cran[!vapply(spec$cran, has_optional, logical(1))]
+  missing_bioc <- spec$bioc[!vapply(spec$bioc, has_optional, logical(1))]
+
+  if (length(missing_cran) == 0L && length(missing_bioc) == 0L) {
+    tick(1.0, "All demo-build packages already installed")
+    return(invisible(TRUE))
+  }
+
+  # In a Shiny session launched via Rscript, `interactive()` is FALSE
+  # and `install.packages()` may prompt for a CRAN mirror. Pin one for
+  # the duration of this call so the install is non-interactive.
+  old_opts <- options(repos = c(CRAN = "https://cloud.r-project.org"))
+  on.exit(options(old_opts), add = TRUE)
+
+  # Two-phase progress band: CRAN [0, 0.4), Bioc [0.4, 0.95], verify [0.95, 1].
+  if (length(missing_cran) > 0L) {
+    tick(0.05, sprintf("Installing CRAN: %s",
+                       paste(missing_cran, collapse = ", ")))
+    utils::install.packages(missing_cran)
+  }
+
+  if (length(missing_bioc) > 0L) {
+    if (!has_optional("BiocManager")) {
+      tick(0.40, "Installing BiocManager (Bioc installer)")
+      utils::install.packages("BiocManager")
+      if (!has_optional("BiocManager")) {
+        stop("Failed to install BiocManager. Try `install.packages('BiocManager')` ",
+             "from an R console to see the underlying error.", call. = FALSE)
+      }
+    }
+    tick(0.45, sprintf("Installing Bioconductor: %s",
+                       paste(missing_bioc, collapse = ", ")))
+    BiocManager::install(missing_bioc, update = FALSE, ask = FALSE)
+  }
+
+  tick(0.95, "Verifying installed packages")
+  still_missing <- c(missing_cran, missing_bioc)[
+    !vapply(c(missing_cran, missing_bioc), has_optional, logical(1))]
+  if (length(still_missing) > 0L) {
+    stop(sprintf(paste0(
+      "Demo-build dependency install failed for package(s): %s. ",
+      "Re-run `Rscript scripts/setup_dev.R --demo` from a terminal to ",
+      "see the underlying CRAN/Bioconductor error (typical causes: ",
+      "missing system libraries, no network, source-compile failure)."),
+      paste(still_missing, collapse = ", ")),
+      call. = FALSE)
+  }
+
+  tick(1.00, "Done")
+  invisible(TRUE)
+}

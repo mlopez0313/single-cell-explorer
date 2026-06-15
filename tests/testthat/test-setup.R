@@ -67,6 +67,45 @@ test_that("sce_setup(dry_run = TRUE) reports the missing-packages plan", {
   for (p in c(res$cran, res$bioc)) expect_false(has_optional(p))
 })
 
+test_that("sce_install_for_demo exists and short-circuits when nothing is missing", {
+  expect_true(is.function(sce_install_for_demo))
+
+  # We cannot actually run `install.packages()` in the test suite, so we
+  # exercise only the short-circuit branch. If this machine already has
+  # every demo dep, the helper must return TRUE without performing any
+  # installs.
+  if (sce_check_setup()$demo$complete) {
+    # Collect progress callbacks so we can assert the helper finishes
+    # cleanly at fraction 1.0.
+    seen <- list()
+    cb <- function(fraction, detail = NULL) {
+      seen[[length(seen) + 1L]] <<- list(fraction = fraction, detail = detail)
+    }
+    expect_true(sce_install_for_demo(progress = cb))
+    expect_true(length(seen) >= 1L)
+    expect_identical(seen[[length(seen)]]$fraction, 1.0)
+  } else {
+    succeed("demo tier incomplete; install path covered by manual smoke runs")
+  }
+})
+
+test_that("sce_install_for_demo accepts NULL progress without error", {
+  if (sce_check_setup()$demo$complete) {
+    expect_silent(sce_install_for_demo(progress = NULL))
+  } else {
+    succeed("demo tier incomplete; install path covered by manual smoke runs")
+  }
+})
+
+test_that("sce_install_for_demo swallows errors from the progress callback", {
+  if (sce_check_setup()$demo$complete) {
+    bad <- function(fraction, detail = NULL) stop("ui blew up")
+    expect_silent(sce_install_for_demo(progress = bad))
+  } else {
+    succeed("demo tier incomplete; install path covered by manual smoke runs")
+  }
+})
+
 test_that("sce_setup refuses to install silently in a non-interactive session", {
   # The test runner is non-interactive (`interactive() == FALSE`). When
   # `auto = FALSE` we should refuse rather than silently `install.packages()`.
