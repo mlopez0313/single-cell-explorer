@@ -29,14 +29,12 @@ test_that("azimuth is listed in list_annotation_engines()", {
 })
 
 # ---- ensure_attached helper ------------------------------------------------
-# Azimuth's `Key<-` resolution needs SeuratObject *attached*, not just
-# loaded -- the helper that closes that gap.
+# General-purpose; not Azimuth-specific (Azimuth uses a separate
+# runtime-setters shim).
 
 test_that("ensure_attached() is idempotent when the package is already attached", {
-  # `methods` is loaded and attached by default in every R session.
   expect_true("package:methods" %in% search())
   expect_true(ensure_attached("methods"))
-  # Second call must not error and must not duplicate the search entry.
   expect_true(ensure_attached("methods"))
   expect_equal(sum(search() == "package:methods"), 1L)
 })
@@ -50,6 +48,69 @@ test_that("ensure_attached() rejects malformed input", {
   expect_error(ensure_attached(character()))
   expect_error(ensure_attached(c("a", "b")))
   expect_error(ensure_attached(""))
+})
+
+# ---- Azimuth runtime-setters shim ------------------------------------------
+# These cover the specific "could not find function `Key<-`" failure
+# mode without needing SeuratObject / Azimuth installed: the helper
+# behaves correctly when SeuratObject is missing (returns empty), is
+# idempotent on repeat calls, and ships the expected default symbol
+# list.
+
+test_that("Azimuth shim short-circuits when SeuratObject is missing", {
+  skip_if(requireNamespace("SeuratObject", quietly = TRUE),
+          "SeuratObject installed; missing-pkg branch not exercised here")
+  expect_identical(.azimuth_install_runtime_setters(), character())
+  expect_false(.AZIMUTH_SHIM_NAME %in% search())
+})
+
+test_that("Azimuth shim symbol list covers the documented setter generics", {
+  expect_true("Key<-" %in% .AZIMUTH_SHIM_SYMBOLS)
+  expect_true("DefaultAssay<-" %in% .AZIMUTH_SHIM_SYMBOLS)
+  expect_true("Idents<-" %in% .AZIMUTH_SHIM_SYMBOLS)
+})
+
+test_that("Azimuth shim is idempotent when already on the search path", {
+  skip_if_not(requireNamespace("SeuratObject", quietly = TRUE),
+              "SeuratObject not installed")
+  # First call: install. Second call: no-op (returns character(0)).
+  on.exit(if (.AZIMUTH_SHIM_NAME %in% search())
+            base::detach(.AZIMUTH_SHIM_NAME, character.only = TRUE),
+          add = TRUE)
+  patched <- .azimuth_install_runtime_setters()
+  expect_true(length(patched) >= 1L)
+  expect_true(.AZIMUTH_SHIM_NAME %in% search())
+  # Second invocation must be a no-op.
+  expect_identical(.azimuth_install_runtime_setters(), character())
+})
+
+test_that("Azimuth shim actually makes the setter visible to a namespaced fn", {
+  skip_if_not(requireNamespace("SeuratObject", quietly = TRUE),
+              "SeuratObject not installed")
+  on.exit(if (.AZIMUTH_SHIM_NAME %in% search())
+            base::detach(.AZIMUTH_SHIM_NAME, character.only = TRUE),
+          add = TRUE)
+  .azimuth_install_runtime_setters()
+  # Probe: pretend we're a function in `stats` (an arbitrary
+  # package). `get(..., inherits = TRUE)` walks the same chain that
+  # R uses to resolve symbols, so a TRUE result here proves the shim
+  # closes the lookup gap that Azimuth hits.
+  probe <- function() NULL
+  environment(probe) <- asNamespace("stats")
+  found <- tryCatch({
+    get("Key<-", envir = environment(probe), inherits = TRUE); TRUE
+  }, error = function(e) FALSE)
+  expect_true(found)
+})
+
+test_that(".azimuth_diagnose_setters() returns the expected structured shape", {
+  d <- .azimuth_diagnose_setters()
+  expect_true(is.list(d))
+  expect_true(all(c("azimuth_installed", "seuratobject_installed",
+                    "seurat_installed", "shim_attached", "resolves") %in% names(d)))
+  expect_true(is.logical(d$shim_attached))
+  expect_true(is.logical(d$resolves))
+  expect_identical(names(d$resolves), .AZIMUTH_SHIM_SYMBOLS)
 })
 
 # ---- Missing-dep gating ----------------------------------------------------

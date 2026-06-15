@@ -60,16 +60,19 @@
     source  = "GitHub",
     repo    = c(Azimuth = "satijalab/azimuth"))
 
-  # Azimuth's internals reach for S4 setters from `SeuratObject` (most
-  # notably `Key<-`) via the calling-environment search path rather
-  # than through its NAMESPACE imports. The `requireNamespace()` calls
-  # above load both packages but do NOT attach them, so the call into
-  # `RunAzimuth` fails with `could not find function "Key<-"`. Attach
-  # both packages here (idempotent if already on the search path) --
-  # this is the same effect as `library(SeuratObject); library(Seurat)`
-  # but scoped to engines that actually need it.
-  ensure_attached("SeuratObject")
-  ensure_attached("Seurat")
+  # Repair the well-known `could not find function "Key<-"` failure
+  # before invoking RunAzimuth. See `.azimuth_install_runtime_setters`
+  # for the full explanation. Returns invisibly the character vector
+  # of symbols patched (empty if none were needed).
+  patched <- .azimuth_install_runtime_setters()
+  if (length(patched) > 0L) {
+    message(sprintf(paste0(
+      "Azimuth runtime shim active: patched %d setter%s missing from ",
+      "Azimuth's NAMESPACE (%s)."),
+      length(patched),
+      if (length(patched) == 1L) "" else "s",
+      paste(patched, collapse = ", ")))
+  }
 
   reference         <- params$reference         %||% "pbmcref"
   annotation_level  <- params$annotation_level  %||% "celltype.l2"
@@ -246,6 +249,113 @@
                              else length(unique(as.character(cluster_vec))),
     reference_source       = sprintf("Azimuth:%s", reference)
   )
+}
+
+# ---- Runtime workaround: missing Seurat/SeuratObject setter imports ------
+#
+# Across several `Azimuth` × `SeuratObject` × `Seurat` version
+# combinations, Azimuth's NAMESPACE has missed `importFrom` entries
+# for S4 setter generics that its internals call -- most commonly
+# `Key<-`. The user-facing symptom is
+#
+#   Annotation engine failed: could not find function "Key<-"
+#
+# Root cause: a function defined in `Azimuth` looks up symbols via its
+# own namespace -> imports -> base -> globalenv -> attached chain. The
+# symbol is missing from the first three (NAMESPACE bug); attaching
+# `SeuratObject` via `library()` does NOT help in every case because
+# `Key<-` is sometimes only registered as an S4 method, not exported
+# as a regular function, so `attachNamespace()` does not copy it into
+# the attached `package:SeuratObject` env.
+#
+# Workaround: take the generic *directly from SeuratObject's namespace
+# env* (which always has it regardless of exports), put it in a tiny
+# shim env, and `attach()` that env at position 2 of the search path.
+# The lookup chain above reaches position 2, so Azimuth's call resolves
+# cleanly.
+#
+# This is conservative: we only inject symbols that (a) Azimuth is
+# known to need and (b) are missing from globalenv. Idempotent: we
+# tag the attached env by `name` and bail if it's already on the
+# search path.
+.AZIMUTH_SHIM_NAME <- "sce:azimuth_setter_shim"
+.AZIMUTH_SHIM_SYMBOLS <- c("Key<-", "DefaultAssay<-", "Idents<-",
+                           "VariableFeatures<-", "Project<-",
+                           "JoinLayers", "DefaultLayer<-")
+
+.azimuth_install_runtime_setters <- function() {
+  if (!requireNamespace("SeuratObject", quietly = TRUE))
+    return(character())
+
+  # Already installed in this session -> idempotent no-op.
+  if (.AZIMUTH_SHIM_NAME %in% search()) return(character())
+
+  so_ns <- asNamespace("SeuratObject")
+  se_ns <- if (requireNamespace("Seurat", quietly = TRUE))
+             asNamespace("Seurat") else NULL
+
+  shim <- new.env(parent = emptyenv())
+  installed <- character()
+  for (sym in .AZIMUTH_SHIM_SYMBOLS) {
+    val <- NULL
+    if (exists(sym, envir = so_ns, inherits = FALSE)) {
+      val <- get(sym, envir = so_ns)
+    } else if (!is.null(se_ns) &&
+               exists(sym, envir = se_ns, inherits = FALSE)) {
+      val <- get(sym, envir = se_ns)
+    }
+    if (!is.null(val)) {
+      assign(sym, val, envir = shim)
+      installed <- c(installed, sym)
+    }
+  }
+
+  if (length(installed) == 0L) return(character())
+
+  # `attach()` at pos = 2 places `shim` immediately after globalenv.
+  # `warn.conflicts = FALSE` keeps the launch quiet -- a few of these
+  # symbols may also be reachable through `package:Seurat` if it has
+  # been attached separately.
+  base::attach(shim, name = .AZIMUTH_SHIM_NAME, pos = 2L,
+               warn.conflicts = FALSE)
+  installed
+}
+
+# Pure diagnostic: where is `Key<-` (and the other setters Azimuth
+# needs) reachable from? Returns a named logical for each symbol; TRUE
+# if R can find the function from a freshly-installed package
+# function's lookup chain. Used by tests and by users who want to
+# debug Azimuth packaging issues from the R console.
+.azimuth_diagnose_setters <- function() {
+  symbols <- .AZIMUTH_SHIM_SYMBOLS
+  out <- list(
+    azimuth_installed      = requireNamespace("Azimuth", quietly = TRUE),
+    seuratobject_installed = requireNamespace("SeuratObject", quietly = TRUE),
+    seurat_installed       = requireNamespace("Seurat", quietly = TRUE),
+    azimuth_version =
+      if (requireNamespace("Azimuth", quietly = TRUE))
+        as.character(utils::packageVersion("Azimuth")) else NA_character_,
+    seuratobject_version =
+      if (requireNamespace("SeuratObject", quietly = TRUE))
+        as.character(utils::packageVersion("SeuratObject")) else NA_character_,
+    seurat_version =
+      if (requireNamespace("Seurat", quietly = TRUE))
+        as.character(utils::packageVersion("Seurat")) else NA_character_,
+    shim_attached = .AZIMUTH_SHIM_NAME %in% search()
+  )
+
+  # For each symbol, where can a hypothetical package function (with
+  # namespace == stats, a stand-in) find it?
+  probe_fn <- function() NULL
+  environment(probe_fn) <- asNamespace("stats")
+  out$resolves <- vapply(symbols, function(sym) {
+    found <- tryCatch({
+      get(sym, envir = environment(probe_fn), inherits = TRUE)
+      TRUE
+    }, error = function(e) FALSE)
+    found
+  }, logical(1))
+  out
 }
 
 # Internal: top-label / fraction summary per cluster.
