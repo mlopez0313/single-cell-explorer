@@ -37,6 +37,20 @@ local({
   for (f in module_files) source(f, local = FALSE)
 })
 
+# ---- One-shot preflight banner --------------------------------------------
+# Console-only summary of which optional dependency tiers are complete.
+# Silent when everything is OK; otherwise points the developer at the
+# setup script. Never installs anything; never blocks the launch.
+local({
+  status <- sce_check_setup()
+  any_missing <- !all(vapply(status, `[[`, logical(1), "complete"))
+  if (any_missing) {
+    message("\n", sce_preflight_message(status), "\n",
+            "Run `Rscript scripts/setup_dev.R --full` once to enable the ",
+            "complete feature surface (or `--demo` for just PBMC 8k).\n")
+  }
+})
+
 # ---- Theme ----------------------------------------------------------------
 # A restrained scientific theme: cool neutrals with a teal accent. The
 # stylesheet in `www/styles.css` layers a richer design system on top.

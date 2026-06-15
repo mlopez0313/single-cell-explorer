@@ -16,6 +16,45 @@ test_that("demo_dataset_path falls back to canonical inst/extdata path", {
   })
 })
 
+test_that(".find_project_root walks up to a DESCRIPTION + app.R pair", {
+  # Create a fake project: <tmp>/proj/{DESCRIPTION, app.R, R/, scripts/}
+  root <- tempfile("sce_root_"); dir.create(root)
+  proj <- file.path(root, "proj"); dir.create(proj)
+  dir.create(file.path(proj, "R"))
+  dir.create(file.path(proj, "scripts"))
+  writeLines("Package: x", file.path(proj, "DESCRIPTION"))
+  writeLines("# app",      file.path(proj, "app.R"))
+
+  # From the scripts/ subdir -> walks up to proj/.
+  expect_identical(normalizePath(.find_project_root(file.path(proj, "scripts")),
+                                 mustWork = FALSE),
+                   normalizePath(proj, mustWork = FALSE))
+  # From a deeper subdir.
+  deep <- file.path(proj, "R", "modules", "deep"); dir.create(deep, recursive = TRUE)
+  expect_identical(normalizePath(.find_project_root(deep), mustWork = FALSE),
+                   normalizePath(proj, mustWork = FALSE))
+  # When no project is found above `start`, returns `start` unchanged.
+  outside <- tempfile("sce_outside_"); dir.create(outside)
+  expect_identical(normalizePath(.find_project_root(outside), mustWork = FALSE),
+                   normalizePath(outside, mustWork = FALSE))
+})
+
+test_that("demo_dataset_path walks up from cwd to find the real project root", {
+  # Drop into a deeper subdir of the real project; the resolver should
+  # still land on `<project_root>/inst/extdata/pbmc8k_demo.rds`.
+  withr::with_envvar(c(SCE_DEMO_DATASET = ""), {
+    proj_root <- normalizePath(file.path(test_path(), "..", ".."),
+                               mustWork = TRUE)
+    withr::with_dir(file.path(proj_root, "R"), {
+      p <- demo_dataset_path()
+      expect_match(p, "inst/extdata/pbmc8k_demo\\.rds$")
+      expect_match(normalizePath(p, mustWork = FALSE),
+                   normalizePath(proj_root, mustWork = FALSE),
+                   fixed = TRUE)
+    })
+  })
+})
+
 test_that("demo_dataset_exists is TRUE when an artifact is on disk", {
   withr::with_envvar(c(SCE_DEMO_DATASET = ""), {
     tmp <- tempfile("sce_proj_")

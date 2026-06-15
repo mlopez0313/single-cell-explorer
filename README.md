@@ -48,6 +48,29 @@ written to disk so the next click is instant. See the
 [Demo dataset](#demo-dataset) section below for control over the build
 chain and how to opt out.
 
+## Quick start (recommended)
+
+One-time, on a fresh clone:
+
+```bash
+Rscript scripts/setup_dev.R --full        # install everything (recommended)
+# or:
+Rscript scripts/setup_dev.R --demo        # core + PBMC 8k build deps only
+# or:
+Rscript scripts/setup_dev.R --core        # just the launch deps
+```
+
+Then launch:
+
+```bash
+R -e 'shiny::runApp("scrna-explorer", port = 3838, host = "0.0.0.0", launch.browser = FALSE)'
+```
+
+A one-line preflight banner is printed at app launch summarising which
+dependency tier (core / demo / full) is complete; if anything is missing
+the banner points at the setup script. Nothing is ever installed at
+launch time -- the only install path is the explicit setup script.
+
 ## Run it
 
 ```bash
@@ -76,9 +99,12 @@ first click, the app will (in order):
 ## Demo dataset
 
 The sidebar button is backed by a **prepared local `.rds` artifact** at
-`inst/extdata/pbmc8k_demo.rds`. The artifact is not bundled in the repo
-(it's data); you can either let the app build it on first click (auto-
-build, default) or prebuild it explicitly:
+`inst/extdata/pbmc8k_demo.rds` (resolved relative to the project root,
+which is auto-detected by walking up from `getwd()` looking for a
+`DESCRIPTION` + `app.R` pair -- works regardless of where R was launched
+from). The artifact is not bundled in the repo (it's data); you can
+either let the app build it on first click (auto-build, default) or
+prebuild it explicitly:
 
 ```bash
 Rscript scripts/build_pbmc8k_demo.R

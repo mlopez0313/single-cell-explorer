@@ -31,23 +31,70 @@
 #     instant; no surprise installs.
 # ============================================================================
 
+#' Find the project root by walking up from `start` looking for a
+#' directory that contains BOTH `DESCRIPTION` and `app.R`. This pair
+#' uniquely identifies the scrnaExplorer source tree -- no other repo
+#' nested below the dev machine's home dir will accidentally match.
+#'
+#' Robust to whatever `getwd()` happens to be:
+#'   * `shiny::runApp("/path/to/scrna-explorer")` -> getwd() is the
+#'     project root, walk returns immediately.
+#'   * `source("/abs/path/to/scrna-explorer/app.R")` -> walk finds
+#'     the project root via app.R's directory.
+#'   * `Rscript scripts/build_pbmc8k_demo.R` from anywhere inside the
+#'     repo -> walks up to the root.
+#'
+#' Returns `start` unchanged if no project root can be found within 32
+#' levels (i.e. the caller really is outside the project tree).
+.find_project_root <- function(start = getwd()) {
+  d <- tryCatch(normalizePath(start, mustWork = FALSE),
+                error = function(e) start)
+  for (.i in seq_len(32L)) {
+    if (file.exists(file.path(d, "DESCRIPTION")) &&
+        file.exists(file.path(d, "app.R"))) {
+      return(d)
+    }
+    parent <- dirname(d)
+    if (identical(parent, d)) break   # reached filesystem root
+    d <- parent
+  }
+  tryCatch(normalizePath(start, mustWork = FALSE),
+           error = function(e) start)
+}
+
 #' Absolute path to the prepared PBMC 8k demo artifact.
 #'
 #' Resolution order (first hit wins):
 #'   1. `SCE_DEMO_DATASET` env var (full path to an `.rds`). Useful for
 #'      CI / dev workflows that keep the artifact outside the repo.
-#'   2. `<project_root>/inst/extdata/pbmc8k_demo.rds` (canonical location).
-#'   3. `<project_root>/data/pbmc8k_demo.rds` (legacy / alt location).
+#'   2. Installed-package mode: `system.file("extdata", "pbmc8k_demo.rds",
+#'      package = "scrnaExplorer")` if the project has been installed as
+#'      a package. Returns "" (and falls through) otherwise.
+#'   3. Source-tree mode (the common case): `<project_root>/inst/extdata/
+#'      pbmc8k_demo.rds`, with `<project_root>` resolved via
+#'      `.find_project_root()` -- robust across machines and launch
+#'      methods (`runApp`, `source`, `Rscript`).
+#'   4. Legacy fallback: `<project_root>/data/pbmc8k_demo.rds`.
 #'
 #' The function only computes a path; it does not check whether the file
 #' exists. Pair it with `demo_dataset_exists()` for that.
 #'
-#' @param project_root project root directory. Defaults to the working
-#'   directory, which is the project root when the app is launched via
-#'   `shiny::runApp(".")`. Override in tests.
-demo_dataset_path <- function(project_root = getwd()) {
+#' @param project_root project root directory. When `NULL` (default), the
+#'   resolver walks up from `getwd()` looking for the scrnaExplorer
+#'   source tree. Tests pass an explicit value to pin the search.
+demo_dataset_path <- function(project_root = NULL) {
   env <- Sys.getenv("SCE_DEMO_DATASET", unset = "")
   if (nzchar(env)) return(normalizePath(env, mustWork = FALSE))
+
+  if (is.null(project_root)) {
+    # Installed-package mode (rare; project is normally run from
+    # source). `system.file()` returns "" when the package is not
+    # installed.
+    installed <- system.file("extdata", "pbmc8k_demo.rds",
+                             package = "scrnaExplorer")
+    if (nzchar(installed)) return(normalizePath(installed, mustWork = FALSE))
+    project_root <- .find_project_root()
+  }
 
   candidates <- c(
     file.path(project_root, "inst", "extdata", "pbmc8k_demo.rds"),
@@ -61,7 +108,10 @@ demo_dataset_path <- function(project_root = getwd()) {
 }
 
 #' Does a prepared demo artifact exist on disk?
-demo_dataset_exists <- function(project_root = getwd()) {
+#'
+#' Uses the same path resolution as `demo_dataset_path()`. Pass
+#' `project_root` to pin the search (mostly useful in tests).
+demo_dataset_exists <- function(project_root = NULL) {
   p <- demo_dataset_path(project_root = project_root)
   file.exists(p) && !dir.exists(p)
 }

@@ -28,15 +28,24 @@
 # ============================================================================
 
 # --- bootstrap: source R/ helpers so we can call build_pbmc8k_demo() -------
-
-proj_root <- normalizePath(file.path(dirname(sys.frame(1)$ofile %||% "."),
-                                     ".."),
-                           mustWork = FALSE)
-if (!dir.exists(file.path(proj_root, "R"))) {
-  # Fallback for `Rscript scripts/build_pbmc8k_demo.R` from project root.
-  proj_root <- normalizePath(".", mustWork = TRUE)
+# Walk up from the current working directory looking for the project
+# root (DESCRIPTION + app.R together). Robust to wherever Rscript was
+# invoked from, mirrors R/demo_dataset.R::.find_project_root().
+.find_proj <- function(start = getwd()) {
+  d <- tryCatch(normalizePath(start, mustWork = FALSE),
+                error = function(e) start)
+  for (.i in seq_len(32L)) {
+    if (file.exists(file.path(d, "DESCRIPTION")) &&
+        file.exists(file.path(d, "app.R"))) return(d)
+    parent <- dirname(d)
+    if (identical(parent, d)) break
+    d <- parent
+  }
+  stop("build_pbmc8k_demo.R: cannot locate scrnaExplorer project root ",
+       "from ", start, ". Run this script from inside the repo.",
+       call. = FALSE)
 }
-setwd(proj_root)
+setwd(.find_proj())
 
 # Source order mirrors app.R / tests/testthat/helper-app.R.
 source(file.path("R", "state.R"), local = FALSE)
