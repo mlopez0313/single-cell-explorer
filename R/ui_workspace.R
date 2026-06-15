@@ -9,39 +9,35 @@
 # All module server functions are started once at app start in `app.R`; only
 # the UI swaps on navigation. This keeps each module's reactive graph alive
 # so navigating away and back is instant.
+#
+# Visual styling lives in `www/styles.css`; reusable primitives in
+# `R/ui_components.R`.
 # ============================================================================
 
 workspace_ui <- function() {
   shiny::tagList(
     shiny::uiOutput("workspace_annotation_banner"),
-    shiny::uiOutput("workspace_messages"),
+    shiny::uiOutput("workspace_messages", class = "workspace-messages"),
     shiny::uiOutput("workspace_body")
   )
 }
 
 workspace_server <- function(input, output, session, state) {
 
-  # Persistent active-annotation banner. Always shown when a dataset is
-  # loaded so users never lose track of which annotation context the rest
+  # Persistent active-annotation context strip. Always shown when a dataset
+  # is loaded so users never lose track of which annotation context the rest
   # of the app is reading from. The string itself is built by
   # `annotation_set_label()` so its format is centralised.
   output$workspace_annotation_banner <- shiny::renderUI({
     if (is.null(state$active_dataset)) return(NULL)
     set <- get_active_annotation(state)
     label <- annotation_set_label(set)
-    bg <- if (is.null(set)) "#f5f5f5" else
-          if (isTRUE(set$is_demo)) "#fff8e1" else "#e8f4fd"
-    fg <- if (is.null(set)) "#666" else
-          if (isTRUE(set$is_demo)) "#5d4037" else "#084298"
-    shiny::div(style = sprintf(
-        "padding:6px 12px; background:%s; color:%s; border-radius:4px; font-size:12px; margin-bottom:8px;",
-        bg, fg),
-      shiny::tags$strong("Active annotation: "),
-      label,
-      shiny::tags$span(style = "float:right; color:#888;",
-                       sprintf("dataset: %s",
-                               state$active_dataset$name %||% "(unnamed)"))
-    )
+    tone  <- if (is.null(set))        "neutral"
+             else if (isTRUE(set$is_demo)) "demo"
+             else                           "active"
+    meta_text <- sprintf("dataset: %s",
+                         state$active_dataset$name %||% "(unnamed)")
+    context_strip(label, meta = meta_text, tone = tone)
   })
 
   output$workspace_messages <- shiny::renderUI({
@@ -49,17 +45,14 @@ workspace_server <- function(input, output, session, state) {
     if (length(msgs) == 0) return(NULL)
     tail_msgs <- utils::tail(msgs, 3)
     shiny::tagList(lapply(tail_msgs, function(m) {
-      color <- switch(m$level,
-                      "success" = "#2e7d32",
-                      "warning" = "#ed6c02",
-                      "error"   = "#c62828",
-                      "#1565c0")
+      tone <- switch(m$level,
+                     "success" = "success",
+                     "warning" = "warning",
+                     "error"   = "error",
+                     "info")
       shiny::div(
-        style = sprintf(
-          "border-left:3px solid %s; padding:6px 10px; margin-bottom:6px; background:#f7f7f7; font-size:13px;",
-          color),
-        m$text
-      )
+        class = paste0("workspace-message workspace-message--", tone),
+        m$text)
     }))
   })
 
@@ -74,30 +67,37 @@ workspace_server <- function(input, output, session, state) {
 }
 
 empty_state_ui <- function() {
-  shiny::div(
-    style = "text-align:center; padding:80px 24px; color:#666;",
-    shiny::h2("Welcome to scRNA Explorer"),
-    shiny::p("Load a dataset from the sidebar to get started."),
-    shiny::p(style = "color:#999; font-size:13px;",
-             "Tip: try \"Load mock dataset\" to explore the UI without real data.")
+  empty_state(
+    title   = "Welcome to scRNA Explorer",
+    lede    = paste("Load a dataset from the sidebar to start exploring.",
+                    "Selections you make are shared across every module."),
+    icon    = "database",
+    hint    = "Tip: try \"Load mock dataset\" to explore the UI without real data."
   )
 }
 
 needs_inputs_ui <- function(mod) {
-  shiny::div(
-    style = "padding:32px; color:#666;",
-    shiny::h3(mod$name),
-    shiny::p("This module needs the following selections before it can run:"),
-    shiny::tags$ul(lapply(mod$required_inputs, shiny::tags$li)),
-    shiny::p(style = "color:#888;",
-             "Open \"Basic scRNA Explorer\" to set them.")
+  app_card(
+    title   = mod$name,
+    caption = "Inputs required",
+    info_banner(
+      tone  = "info",
+      title = "This module needs a few selections before it can run.",
+      req_list(mod$required_inputs)
+    ),
+    shiny::p(class = "app-card__caption",
+             "Open the Basic scRNA Explorer to set them.")
   )
 }
 
 unknown_module_ui <- function(id) {
-  shiny::div(
-    style = "padding:32px; color:#a00;",
-    shiny::h3("Unknown module"),
-    shiny::p(sprintf("No module is registered with id '%s'.", id))
+  app_card(
+    title = "Unknown module",
+    caption = "configuration",
+    info_banner(
+      tone  = "danger",
+      title = "No module is registered with that id.",
+      shiny::tags$code(id)
+    )
   )
 }

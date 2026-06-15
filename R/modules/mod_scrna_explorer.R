@@ -9,60 +9,85 @@
 #
 # All cross-module selections are written back to shared app state. Dataset
 # access goes through R/dataset_helpers.R; plotting through R/plotting.R.
+#
+# UI composition uses the shared primitives in `R/ui_components.R`
+# (`page_header`, `control_panel`, `plot_card`, `info_banner`, etc.).
+# Server logic (reactives, observers, plot rendering) is unchanged from v1.
 # ============================================================================
 
 mod_scrna_explorer_ui <- function(id) {
   ns <- shiny::NS(id)
   shiny::tagList(
-    shiny::h2("Basic scRNA Explorer"),
-    shiny::p("Explore the active dataset. Your selections are shared with other modules."),
-
-    # -- Controls ------------------------------------------------------------
-    shiny::fluidRow(
-      shiny::column(3, shiny::uiOutput(ns("assay_ui"))),
-      shiny::column(3, shiny::uiOutput(ns("reduction_ui"))),
-      shiny::column(3, shiny::uiOutput(ns("metadata_ui"))),
-      shiny::column(3, shiny::uiOutput(ns("gene_ui")))
+    page_header(
+      eyebrow = "Exploration",
+      title   = "Basic scRNA Explorer",
+      lede    = paste("Inspect reductions and color cells by metadata or",
+                      "by gene. Selections are shared with every other",
+                      "module.")
     ),
-
-    shiny::hr(),
 
     # -- Summary band --------------------------------------------------------
     shiny::uiOutput(ns("summary_band")),
 
-    # -- Two plots side by side ---------------------------------------------
-    shiny::fluidRow(
-      shiny::column(6,
-        shiny::h4(shiny::textOutput(ns("meta_title"), inline = TRUE)),
-        shiny::uiOutput(ns("meta_warning")),
-        shiny::plotOutput(
-          ns("meta_plot"), height = "440px",
-          brush = shiny::brushOpts(id = ns("meta_brush"), resetOnNew = TRUE)
-        ),
-        shiny::div(style = "font-size:12px; color:#888;",
-                   "Tip: drag a box on the plot to select cells.")
-      ),
-      shiny::column(6,
-        shiny::h4(shiny::textOutput(ns("gene_title"), inline = TRUE)),
-        shiny::uiOutput(ns("display_mode_ui")),
-        shiny::uiOutput(ns("gene_warning")),
-        shiny::plotOutput(ns("gene_plot"), height = "440px")
+    # -- Controls (visually distinct panel) ----------------------------------
+    control_panel(
+      title = "View settings",
+      shiny::fluidRow(
+        shiny::column(3, shiny::uiOutput(ns("assay_ui"))),
+        shiny::column(3, shiny::uiOutput(ns("reduction_ui"))),
+        shiny::column(3, shiny::uiOutput(ns("metadata_ui"))),
+        shiny::column(3, shiny::uiOutput(ns("gene_ui")))
       )
     ),
 
-    shiny::hr(),
+    # -- Two plots side by side ---------------------------------------------
+    shiny::fluidRow(
+      shiny::column(6,
+        plot_card(
+          title    = shiny::textOutput(ns("meta_title"), inline = TRUE),
+          caption  = "metadata embedding",
+          footnote = "Drag a box on the plot to select cells.",
+          shiny::uiOutput(ns("meta_warning")),
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(
+              ns("meta_plot"), height = "440px",
+              brush = shiny::brushOpts(id = ns("meta_brush"),
+                                       resetOnNew = TRUE)
+            )
+          )
+        )
+      ),
+      shiny::column(6,
+        plot_card(
+          title   = shiny::textOutput(ns("gene_title"), inline = TRUE),
+          caption = "feature embedding",
+          shiny::uiOutput(ns("display_mode_ui")),
+          shiny::uiOutput(ns("gene_warning")),
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("gene_plot"), height = "440px")
+          )
+        )
+      )
+    ),
 
     # -- Selection footer ----------------------------------------------------
-    shiny::fluidRow(
-      shiny::column(8,
-        shiny::strong("Selected cells: "),
-        shiny::textOutput(ns("n_selected"), inline = TRUE),
-        shiny::tags$span(style = "margin-left:12px; color:#888; font-size:12px;",
-                         "(brush the left plot to select; click \"Clear\" to reset)")
-      ),
-      shiny::column(4, align = "right",
-        shiny::actionButton(ns("clear_selection"), "Clear selection",
-                            class = "btn btn-default btn-sm")
+    app_card(
+      title   = "Selection",
+      caption = "shared with downstream modules",
+      shiny::fluidRow(
+        shiny::column(8,
+          shiny::div(
+            class = "selection-meta",
+            content_label("Selected cells"),
+            shiny::span(class = "sce-tabular",
+                        shiny::textOutput(ns("n_selected"), inline = TRUE)),
+            helper_text("brush the left plot to select; click Clear to reset")
+          )
+        ),
+        shiny::column(4, align = "right",
+          shiny::actionButton(ns("clear_selection"), "Clear selection",
+                              class = "btn btn-default btn-sm")
+        )
       )
     )
   )
@@ -102,16 +127,20 @@ mod_scrna_explorer_server <- function(id, state) {
     shiny::observeEvent(input$gene,      state$selected_gene           <- input$gene,      ignoreInit = TRUE)
 
     # ---- Summary band ----------------------------------------------------
+    # Content-side persistent summary bar (distinct from the workspace's
+    # annotation context strip). Lists the dataset + the columns each module
+    # downstream is reading from. Uses the shared `summary_bar()` primitive
+    # so it doesn't depend on page-header internals.
     output$summary_band <- shiny::renderUI({
       ds <- state$active_dataset
-      shiny::div(
-        style = "padding:8px 12px; background:#f5f7fa; border-radius:4px; font-size:13px; margin-bottom:12px;",
-        shiny::strong(ds$name), " | ",
-        format(ds$n_cells, big.mark = ","), " cells | ",
-        format(ds$n_genes, big.mark = ","), " genes | ",
-        "assays: ",     paste(ds$assays,     collapse = ", "), " | ",
-        "reductions: ", paste(ds$reductions, collapse = ", ")
-      )
+      if (is.null(ds)) return(NULL)
+      summary_bar(shiny::tagList(
+        summary_item("Dataset",    ds$name),
+        summary_item("Cells",      format(ds$n_cells, big.mark = ",")),
+        summary_item("Genes",      format(ds$n_genes, big.mark = ",")),
+        summary_item("Assays",     paste(ds$assays,     collapse = ", ")),
+        summary_item("Reductions", paste(ds$reductions, collapse = ", "))
+      ))
     })
 
     # ---- Embedding ------------------------------------------------------
@@ -170,8 +199,10 @@ mod_scrna_explorer_server <- function(id, state) {
     # Marker Investigation, DE, and Pathway never read smoothed values.
     output$display_mode_ui <- shiny::renderUI({
       if (!has_smoothed_results(state)) {
-        return(shiny::div(style = "font-size:11px; color:#aaa; margin:4px 0 8px 0;",
-          "Tip: run Data Smoothing to enable a smoothed view."))
+        return(info_banner(
+          tone = "neutral",
+          "Run Data Smoothing to enable a smoothed view of this plot."
+        ))
       }
       shiny::radioButtons(ns("display_mode"), label = NULL,
         choices = c("Raw" = "raw", "Smoothed (visualization only)" = "smoothed"),

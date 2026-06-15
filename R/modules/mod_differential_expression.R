@@ -20,118 +20,144 @@
 mod_differential_expression_ui <- function(id) {
   ns <- shiny::NS(id)
   shiny::tagList(
-    shiny::h2("Differential Expression"),
-    shiny::p("Compare two groups of cells. Results live in ",
-             shiny::tags$code("state$analysis_results$de"),
-             " for downstream modules."),
+    page_header(
+      eyebrow = "Statistics",
+      title   = "Differential Expression",
+      lede    = shiny::tagList(
+        "Compare two groups of cells. Results live in ",
+        shiny::tags$code("state$analysis_results$de"),
+        " for downstream modules to read without re-running.")
+    ),
 
     # -- Compute controls -------------------------------------------------
-    shiny::fluidRow(
-      shiny::column(3, shiny::uiOutput(ns("group_field_ui"))),
-      shiny::column(3, shiny::uiOutput(ns("group1_ui"))),
-      shiny::column(3, shiny::uiOutput(ns("group2_ui"))),
-      shiny::column(3, shiny::uiOutput(ns("assay_ui")))
-    ),
-    shiny::fluidRow(
-      shiny::column(3, shiny::selectInput(ns("layer"), "Layer / slot",
-                                          choices  = c("data", "counts", "scale.data"),
-                                          selected = "data")),
-      shiny::column(3, shiny::numericInput(ns("min_pct"), "min % expressed",
-                                           value = 0.1, min = 0, max = 1, step = 0.05)),
-      shiny::column(3, shiny::numericInput(ns("log2fc_thr"), "Significance |log2FC| \u2265",
-                                           value = 0.5, min = 0, step = 0.1)),
-      shiny::column(3, shiny::numericInput(ns("padj_thr"), "Significance adj. p \u2264",
-                                           value = 0.05, min = 0, max = 1, step = 0.01))
-    ),
-    shiny::fluidRow(
-      shiny::column(6, shiny::uiOutput(ns("backend_ui"))),
-      shiny::column(6, shiny::div(style = "color:#888; font-size:12px; padding-top:24px;",
-                                  "Auto-select uses presto::wilcoxauc() when installed; otherwise falls back to the pure-R Wilcoxon. Pseudobulk backends require a 'sample_by' replicate column."))
-    ),
-    # ---- Pseudobulk-only controls (revealed when a pseudobulk backend is picked)
-    shiny::conditionalPanel(
-      condition = sprintf(
-        "['pseudobulk_naive','pseudobulk_edger','pseudobulk_deseq2'].indexOf(input['%s']) >= 0",
-        ns("backend")),
+    control_panel(
+      title = "Test design",
       shiny::fluidRow(
-        shiny::column(4, shiny::uiOutput(ns("sample_by_ui"))),
-        shiny::column(4, shiny::numericInput(ns("min_cells_per_sample"),
-                                             "Min cells per pseudobulk sample",
-                                             value = 10, min = 1, step = 1)),
-        shiny::column(4, shiny::numericInput(ns("min_samples_per_group"),
-                                             "Min samples per group",
-                                             value = 2, min = 2, step = 1))
+        shiny::column(3, shiny::uiOutput(ns("group_field_ui"))),
+        shiny::column(3, shiny::uiOutput(ns("group1_ui"))),
+        shiny::column(3, shiny::uiOutput(ns("group2_ui"))),
+        shiny::column(3, shiny::uiOutput(ns("assay_ui")))
+      ),
+      shiny::fluidRow(
+        shiny::column(3, shiny::selectInput(ns("layer"), "Layer / slot",
+                                            choices  = c("data", "counts", "scale.data"),
+                                            selected = "data")),
+        shiny::column(3, shiny::numericInput(ns("min_pct"), "min % expressed",
+                                             value = 0.1, min = 0, max = 1, step = 0.05)),
+        shiny::column(3, shiny::numericInput(ns("log2fc_thr"), "Significance |log2FC| \u2265",
+                                             value = 0.5, min = 0, step = 0.1)),
+        shiny::column(3, shiny::numericInput(ns("padj_thr"), "Significance adj. p \u2264",
+                                             value = 0.05, min = 0, max = 1, step = 0.01))
+      ),
+      shiny::fluidRow(
+        shiny::column(6, shiny::uiOutput(ns("backend_ui"))),
+        shiny::column(6,
+          beside_input(
+            helper_text(
+              "Auto-select uses ", shiny::tags$code("presto::wilcoxauc()"),
+              " when installed; otherwise falls back to the pure-R Wilcoxon. ",
+              "Pseudobulk backends require a `sample_by` replicate column.")))
+      ),
+      # ---- Pseudobulk-only controls (revealed when a pseudobulk backend is picked)
+      shiny::conditionalPanel(
+        condition = sprintf(
+          "['pseudobulk_naive','pseudobulk_edger','pseudobulk_deseq2'].indexOf(input['%s']) >= 0",
+          ns("backend")),
+        shiny::fluidRow(
+          shiny::column(4, shiny::uiOutput(ns("sample_by_ui"))),
+          shiny::column(4, shiny::numericInput(ns("min_cells_per_sample"),
+                                               "Min cells per pseudobulk sample",
+                                               value = 10, min = 1, step = 1)),
+          shiny::column(4, shiny::numericInput(ns("min_samples_per_group"),
+                                               "Min samples per group",
+                                               value = 2, min = 2, step = 1))
+        )
+      ),
+      actions = shiny::tagList(
+        shiny::actionButton(ns("run"), "Run differential expression",
+                            class = "btn btn-primary"),
+        helper_text("Computation runs only when this button is clicked.")
       )
-    ),
-    shiny::div(style = "margin: 8px 0 16px 0;",
-      shiny::actionButton(ns("run"), "Run Differential Expression",
-                          class = "btn btn-primary"),
-      shiny::tags$span(style = "margin-left:12px; color:#888; font-size:12px;",
-                       "Computation runs only when this button is clicked.")
     ),
 
     # -- Status banner ---------------------------------------------------
     shiny::uiOutput(ns("status_banner")),
     shiny::uiOutput(ns("input_warning")),
 
-    shiny::hr(),
-
-    # -- Display filters + volcano + table ------------------------------
+    # -- Volcano + results table ----------------------------------------
     shiny::fluidRow(
       shiny::column(6,
-        shiny::h4("Volcano"),
-        shiny::div(style = "font-size:12px; color:#888;",
-                   "Click a point to set the selected gene below."),
-        shiny::plotOutput(ns("volcano"), height = "420px",
-                          click = shiny::clickOpts(id = ns("volcano_click")))
+        plot_card(
+          title    = "Volcano",
+          caption  = "log2FC vs -log10 adj. p",
+          footnote = "Click a point to set the selected gene.",
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("volcano"), height = "420px",
+                              click = shiny::clickOpts(id = ns("volcano_click"))))
+        )
       ),
       shiny::column(6,
-        shiny::h4("DE results"),
-        shiny::fluidRow(
-          shiny::column(4, shiny::textInput(ns("gene_search"), "Gene search",
-                                            value = "", placeholder = "regex or substring")),
-          shiny::column(3, shiny::numericInput(ns("filter_log2fc"), "min |log2FC|",
-                                               value = 0.5, min = 0, step = 0.1)),
-          shiny::column(3, shiny::numericInput(ns("filter_padj"), "max adj. p",
-                                               value = 0.05, min = 0, max = 1, step = 0.01)),
-          shiny::column(2, shiny::numericInput(ns("max_rows"), "max rows",
-                                               value = 50, min = 1, step = 10))
-        ),
-        shiny::fluidRow(
-          shiny::column(6, shiny::selectInput(ns("sort_by"), "Sort by",
-                                              choices = c("p_val_adj", "avg_log2FC", "pct.1", "pct.2", "gene"),
-                                              selected = "p_val_adj")),
-          shiny::column(6, shiny::radioButtons(ns("sort_dir"), "Direction",
-                                               choices = c("descending", "ascending"),
-                                               selected = "ascending", inline = TRUE))
-        ),
-        shiny::uiOutput(ns("table_warning")),
-        shiny::div(style = "max-height:420px; overflow:auto;",
-                   shiny::tableOutput(ns("de_table")))
+        table_card(
+          title   = "DE results",
+          caption = "filter, sort, inspect",
+          toolbar = shiny::tagList(
+            shiny::fluidRow(
+              shiny::column(4, shiny::textInput(ns("gene_search"), "Gene search",
+                                                value = "", placeholder = "regex or substring")),
+              shiny::column(3, shiny::numericInput(ns("filter_log2fc"), "min |log2FC|",
+                                                   value = 0.5, min = 0, step = 0.1)),
+              shiny::column(3, shiny::numericInput(ns("filter_padj"), "max adj. p",
+                                                   value = 0.05, min = 0, max = 1, step = 0.01)),
+              shiny::column(2, shiny::numericInput(ns("max_rows"), "max rows",
+                                                   value = 50, min = 1, step = 10))
+            ),
+            shiny::fluidRow(
+              shiny::column(6, shiny::selectInput(ns("sort_by"), "Sort by",
+                                                  choices = c("p_val_adj", "avg_log2FC", "pct.1", "pct.2", "gene"),
+                                                  selected = "p_val_adj")),
+              shiny::column(6, shiny::radioButtons(ns("sort_dir"), "Direction",
+                                                   choices = c("descending", "ascending"),
+                                                   selected = "ascending", inline = TRUE))
+            )
+          ),
+          max_height = "bounded",
+          shiny::uiOutput(ns("table_warning")),
+          shiny::tableOutput(ns("de_table"))
+        )
       )
     ),
-
-    shiny::hr(),
 
     # -- Inspect panel ---------------------------------------------------
     shiny::fluidRow(
       shiny::column(4,
-        shiny::h4("Inspect gene"),
-        shiny::uiOutput(ns("inspect_ui")),
-        shiny::actionButton(ns("send_to_explorer"), "Send to Explorer",
-                            class = "btn btn-default"),
-        shiny::div(style = "margin-top:10px; font-size:12px; color:#888;",
-                   shiny::textOutput(ns("inspect_status")))
+        app_card(
+          title   = "Inspect gene",
+          caption = "sync with Explorer",
+          shiny::uiOutput(ns("inspect_ui")),
+          action_row(
+            shiny::actionButton(ns("send_to_explorer"), "Send to Explorer",
+                                class = "btn btn-default")
+          ),
+          microcaption(shiny::textOutput(ns("inspect_status"), inline = TRUE))
+        )
       ),
       shiny::column(4,
-        shiny::h4(shiny::textOutput(ns("feature_title"), inline = TRUE)),
-        shiny::uiOutput(ns("feature_warning")),
-        shiny::plotOutput(ns("feature_plot"), height = "320px")
+        plot_card(
+          title   = shiny::textOutput(ns("feature_title"), inline = TRUE),
+          caption = "feature embedding",
+          shiny::uiOutput(ns("feature_warning")),
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("feature_plot"), height = "320px"))
+        )
       ),
       shiny::column(4,
-        shiny::h4(shiny::textOutput(ns("violin_title"), inline = TRUE)),
-        shiny::uiOutput(ns("violin_warning")),
-        shiny::plotOutput(ns("violin_plot"), height = "320px")
+        plot_card(
+          title   = shiny::textOutput(ns("violin_title"), inline = TRUE),
+          caption = "expression by group",
+          shiny::uiOutput(ns("violin_warning")),
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("violin_plot"), height = "320px"))
+        )
       )
     )
   )
@@ -283,20 +309,16 @@ mod_differential_expression_server <- function(id, state) {
     output$status_banner <- shiny::renderUI({
       de <- de_slot()
       if (is.null(de) || identical(de$status, "not_run")) {
-        return(shiny::div(style = "padding:8px 12px; background:#eee; border-radius:4px; font-size:13px;",
-                          shiny::tags$strong("Status: "), "Not run yet. Configure the controls above and click ",
-                          shiny::tags$em("Run Differential Expression"), "."))
+        return(status_banner(
+          shiny::span("Not run yet. Configure the controls above and click ",
+                      shiny::tags$em("Run differential expression"), "."),
+          tone = "idle"))
       }
-      bg <- switch(de$status,
-                   "running"   = "#cfe2ff",
-                   "completed" = "#d1e7dd",
-                   "failed"    = "#f8d7da",
-                   "#eee")
-      fg <- switch(de$status,
-                   "running"   = "#084298",
-                   "completed" = "#0a3622",
-                   "failed"    = "#842029",
-                   "#333")
+      tone <- switch(de$status,
+                     "running"   = "running",
+                     "completed" = "success",
+                     "failed"    = "danger",
+                     "idle")
       txt <- switch(de$status,
         "running"   = "Running...",
         "completed" = sprintf("Completed: %s vs %s on '%s'. %d genes tested in %d ms.",
@@ -305,11 +327,7 @@ mod_differential_expression_server <- function(id, state) {
                               nrow(de$results), de$duration_ms %||% 0L),
         "failed"    = sprintf("Failed: %s", de$error_message %||% "(unknown error)"),
         "")
-      shiny::div(
-        style = sprintf("padding:8px 12px; background:%s; color:%s; border-radius:4px; font-size:13px;",
-                        bg, fg),
-        shiny::tags$strong("Status: "), txt
-      )
+      status_banner(txt, tone = tone)
     })
 
     # ---- Filtered + sorted view ----------------------------------------
@@ -358,8 +376,7 @@ mod_differential_expression_server <- function(id, state) {
     output$table_warning <- shiny::renderUI({
       de <- de_slot()
       if (is.null(de) || identical(de$status, "not_run"))
-        return(shiny::div(style = "padding:8px 12px; font-size:13px; color:#666;",
-                          "Run DE above to populate the table."))
+        return(shiny::div(class = "p-3", helper_text("Run DE above to populate the table.")))
       if (identical(de$status, "running"))
         return(friendly_warning("Computing DE results..."))
       if (identical(de$status, "failed"))

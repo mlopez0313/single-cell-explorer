@@ -19,84 +19,100 @@
 mod_pathway_analysis_ui <- function(id) {
   ns <- shiny::NS(id)
   shiny::tagList(
-    shiny::h2("Pathway Analysis"),
-    shiny::p("Overrepresentation enrichment from Differential Expression results. ",
-             "Run DE first; this module reads from ",
-             shiny::tags$code("state$analysis_results$de"), "."),
+    page_header(
+      eyebrow = "Functional Analysis",
+      title   = "Pathway Analysis",
+      lede    = shiny::tagList(
+        "Overrepresentation enrichment from Differential Expression results.",
+        " Run DE first; this module reads from ",
+        shiny::tags$code("state$analysis_results$de"), ".")
+    ),
 
-    # -- DE-required banner / instructions --------------------------------
+    # -- DE-required banner -----------------------------------------------
     shiny::uiOutput(ns("de_status")),
 
-    # -- Controls ---------------------------------------------------------
-    shiny::fluidRow(
-      shiny::column(3, shiny::selectInput(ns("direction"), "Direction",
-                                          choices = c("up in group 1" = "up_in_g1",
-                                                      "up in group 2" = "up_in_g2",
-                                                      "both"          = "both"),
-                                          selected = "up_in_g1")),
-      shiny::column(3, shiny::numericInput(ns("padj_cutoff"), "adj. p \u2264",
-                                           value = 0.05, min = 0, max = 1, step = 0.01)),
-      shiny::column(3, shiny::numericInput(ns("log2fc_cutoff"), "min |log2FC|",
-                                           value = 0.5, min = 0, step = 0.1)),
-      shiny::column(3, shiny::selectInput(ns("collection"), "Gene set collection",
-                                          choices  = available_pathway_collections(),
-                                          selected = available_pathway_collections()[1]))
-    ),
-    shiny::fluidRow(
-      shiny::column(3, shiny::selectInput(ns("ranking_metric"), "Ranking metric",
-                                          choices  = c("avg_log2FC", "p_val_adj"),
-                                          selected = "avg_log2FC")),
-      shiny::column(9, shiny::div(style = "font-size:12px; color:#888; margin-top:25px;",
-        "Ranking metric is a placeholder for future GSEA support; ORA is set-based and ignores ranking."))
-    ),
-    shiny::div(style = "margin: 8px 0 16px 0;",
-      shiny::actionButton(ns("run"), "Run Pathway Analysis",
-                          class = "btn btn-primary"),
-      shiny::tags$span(style = "margin-left:12px; color:#888; font-size:12px;",
-                       "Computation runs only when this button is clicked.")
+    control_panel(
+      title = "Selection + collection",
+      shiny::fluidRow(
+        shiny::column(3, shiny::selectInput(ns("direction"), "Direction",
+                                            choices = c("up in group 1" = "up_in_g1",
+                                                        "up in group 2" = "up_in_g2",
+                                                        "both"          = "both"),
+                                            selected = "up_in_g1")),
+        shiny::column(3, shiny::numericInput(ns("padj_cutoff"), "adj. p \u2264",
+                                             value = 0.05, min = 0, max = 1, step = 0.01)),
+        shiny::column(3, shiny::numericInput(ns("log2fc_cutoff"), "min |log2FC|",
+                                             value = 0.5, min = 0, step = 0.1)),
+        shiny::column(3, shiny::selectInput(ns("collection"), "Gene set collection",
+                                            choices  = available_pathway_collections(),
+                                            selected = available_pathway_collections()[1]))
+      ),
+      shiny::fluidRow(
+        shiny::column(3, shiny::selectInput(ns("ranking_metric"), "Ranking metric",
+                                            choices  = c("avg_log2FC", "p_val_adj"),
+                                            selected = "avg_log2FC")),
+        shiny::column(9,
+          beside_input(
+            helper_text(
+              "Ranking metric is a placeholder for future GSEA support; ",
+              "ORA is set-based and ignores ranking.")))
+      ),
+      actions = shiny::tagList(
+        shiny::actionButton(ns("run"), "Run pathway analysis",
+                            class = "btn btn-primary"),
+        helper_text("Computation runs only when this button is clicked.")
+      )
     ),
 
     shiny::uiOutput(ns("status_banner")),
     shiny::uiOutput(ns("input_warning")),
     shiny::uiOutput(ns("selection_summary")),
 
-    shiny::hr(),
-
     # -- Plot + table -----------------------------------------------------
     shiny::fluidRow(
       shiny::column(6,
-        shiny::h4("Top pathways"),
-        shiny::div(style = "font-size:12px; color:#888;",
-                   "Click a bar to inspect overlapping genes."),
-        shiny::plotOutput(ns("bar_plot"), height = "420px",
-                          click = shiny::clickOpts(id = ns("bar_click")))
+        plot_card(
+          title    = "Top pathways",
+          caption  = "ranked by adj. p",
+          footnote = "Click a bar to inspect overlapping genes.",
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("bar_plot"), height = "420px",
+                              click = shiny::clickOpts(id = ns("bar_click"))))
+        )
       ),
       shiny::column(6,
-        shiny::h4("Enrichment results"),
-        shiny::uiOutput(ns("table_warning")),
-        shiny::div(style = "max-height:420px; overflow:auto;",
-                   shiny::tableOutput(ns("results_table")))
+        table_card(
+          title      = "Enrichment results",
+          caption    = "Fisher's exact, BH-adjusted",
+          max_height = "bounded",
+          shiny::uiOutput(ns("table_warning")),
+          shiny::tableOutput(ns("results_table"))
+        )
       )
     ),
-
-    shiny::hr(),
 
     # -- Pathway inspection ---------------------------------------------
     shiny::fluidRow(
       shiny::column(4,
-        shiny::h4("Inspect pathway"),
-        shiny::uiOutput(ns("pathway_picker_ui")),
-        shiny::div(style = "font-size:13px; margin-top:8px;",
-                   shiny::strong("Overlapping genes:")),
-        shiny::uiOutput(ns("overlap_ui"))
+        app_card(
+          title   = "Inspect pathway",
+          caption = "click a bar or pick a row",
+          shiny::uiOutput(ns("pathway_picker_ui")),
+          section_title("Overlapping genes"),
+          shiny::uiOutput(ns("overlap_ui"))
+        )
       ),
       shiny::column(8,
-        shiny::h4("Send a gene to the Explorer"),
-        shiny::uiOutput(ns("gene_picker_ui")),
-        shiny::actionButton(ns("send_to_explorer"), "Send to Explorer",
-                            class = "btn btn-default"),
-        shiny::div(style = "margin-top:10px; font-size:12px; color:#888;",
-                   shiny::textOutput(ns("send_status")))
+        app_card(
+          title   = "Send a gene to the Explorer",
+          caption = "FeaturePlot will update across modules",
+          shiny::uiOutput(ns("gene_picker_ui")),
+          action_row(
+            shiny::actionButton(ns("send_to_explorer"), "Send to Explorer",
+                                class = "btn btn-default")
+          ),
+          microcaption(shiny::textOutput(ns("send_status"), inline = TRUE))
+        )
       )
     )
   )
@@ -116,11 +132,11 @@ mod_pathway_analysis_server <- function(id, state) {
 
     output$de_status <- shiny::renderUI({
       if (de_ready()) return(NULL)
-      shiny::div(
-        style = "padding:10px 14px; background:#fff3cd; color:#664d03; border-radius:4px; font-size:13px;",
-        shiny::strong("No DE results yet. "),
+      info_banner(
+        tone  = "warning",
+        title = "No DE results yet.",
         "Open ", shiny::tags$em("Differential Expression"),
-        " and click ", shiny::tags$em("Run Differential Expression"),
+        " and click ", shiny::tags$em("Run differential expression"),
         " to populate ", shiny::tags$code("state$analysis_results$de"), "."
       )
     })
@@ -145,10 +161,12 @@ mod_pathway_analysis_server <- function(id, state) {
     output$selection_summary <- shiny::renderUI({
       if (!de_ready()) return(NULL)
       sel <- selected_preview()
-      shiny::div(style = "padding:6px 12px; background:#eef; border-radius:4px; font-size:12px; margin:6px 0;",
-        shiny::strong(length(sel), "genes selected"), " from DE results based on direction + thresholds.",
+      info_banner(
+        tone  = "info",
+        title = sprintf("%d genes selected", length(sel)),
+        " from DE results based on direction + thresholds.",
         if (length(sel) > 0L)
-          shiny::tags$div(style = "margin-top:2px; color:#444; font-family: monospace;",
+          shiny::div(class = "gene-list",
             paste(utils::head(sel, 12), collapse = ", "),
             if (length(sel) > 12) sprintf(" (+%d more)", length(sel) - 12L) else "")
       )
@@ -249,13 +267,9 @@ mod_pathway_analysis_server <- function(id, state) {
     # ---- Status banner ---------------------------------------------------
     output$status_banner <- shiny::renderUI({
       p <- pw_slot()
-      if (is.null(p)) return(shiny::div(
-        style = "padding:8px 12px; background:#eee; border-radius:4px; font-size:13px;",
-        shiny::tags$strong("Status: "), "Not run yet."))
-      bg <- switch(p$status, running = "#cfe2ff", completed = "#d1e7dd",
-                   failed = "#f8d7da", "#eee")
-      fg <- switch(p$status, running = "#084298", completed = "#0a3622",
-                   failed = "#842029", "#333")
+      if (is.null(p)) return(status_banner("Not run yet.", tone = "idle"))
+      tone <- switch(p$status, running = "running", completed = "success",
+                     failed = "danger", "idle")
       txt <- switch(p$status,
         running   = "Running...",
         completed = sprintf("Completed: %s | direction=%s | %d pathways tested in %d ms.",
@@ -264,9 +278,7 @@ mod_pathway_analysis_server <- function(id, state) {
                             p$duration_ms %||% 0L),
         failed    = sprintf("Failed: %s", p$error_message %||% "(unknown)"),
         "")
-      shiny::div(style = sprintf("padding:8px 12px; background:%s; color:%s; border-radius:4px; font-size:13px;",
-                                 bg, fg),
-                 shiny::tags$strong("Status: "), txt)
+      status_banner(txt, tone = tone)
     })
 
     # ---- Bar plot / table ------------------------------------------------
@@ -307,8 +319,8 @@ mod_pathway_analysis_server <- function(id, state) {
     output$table_warning <- shiny::renderUI({
       p <- pw_slot()
       if (is.null(p) || identical(p$status, "not_run"))
-        return(shiny::div(style = "padding:8px 12px; font-size:13px; color:#666;",
-                          "Run pathway analysis above to populate the table."))
+        return(shiny::div(class = "p-3",
+                          helper_text("Run pathway analysis above to populate the table.")))
       if (identical(p$status, "running"))
         return(friendly_warning("Computing enrichment..."))
       if (identical(p$status, "failed"))
@@ -338,7 +350,7 @@ mod_pathway_analysis_server <- function(id, state) {
     output$pathway_picker_ui <- shiny::renderUI({
       p <- pw_slot()
       if (is.null(p) || is.null(p$results) || nrow(p$results) == 0L)
-        return(shiny::div(style = "color:#888; font-size:13px;", "(no results yet)"))
+        return(helper_text("(no results yet)"))
       df <- p$results[order(p$results$p_val_adj, p$results$p_val), , drop = FALSE]
       shiny::selectInput(ns("inspect_pathway"), label = NULL,
                          choices = df$pathway, selected = df$pathway[1])
@@ -358,9 +370,8 @@ mod_pathway_analysis_server <- function(id, state) {
     output$overlap_ui <- shiny::renderUI({
       g <- overlap_genes_of()
       if (length(g) == 0L)
-        return(shiny::tags$div(style = "color:#888; font-size:13px;", "(no overlapping genes)"))
-      shiny::tags$div(style = "font-family: monospace; font-size:13px; color:#222;",
-                      paste(g, collapse = ", "))
+        return(helper_text("(no overlapping genes)"))
+      shiny::div(class = "gene-list", paste(g, collapse = ", "))
     })
 
     output$gene_picker_ui <- shiny::renderUI({

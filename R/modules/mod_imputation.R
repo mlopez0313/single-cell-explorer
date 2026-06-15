@@ -11,66 +11,81 @@
 # Results land in `state$analysis_results$imputation`. Clearing wipes that
 # slot AND resets the display mode to "raw" so no module is left in a
 # dangling state.
+#
+# UI composition uses the shared primitives in `R/ui_components.R`. Server
+# logic (reactives, observers, run/clear handlers) is unchanged.
 # ============================================================================
 
 mod_imputation_ui <- function(id) {
   ns <- shiny::NS(id)
   shiny::tagList(
-    shiny::h2("Data Smoothing / Imputation"),
+    page_header(
+      eyebrow = "Advanced Analysis",
+      title   = "Data Smoothing / Imputation",
+      lede    = paste("Compute smoothed expression for visualization-only",
+                      "exploration. The smoothed FeaturePlot in the Basic",
+                      "Explorer reads from this module's result; DE,",
+                      "Markers, and Pathway continue to use raw values.")
+    ),
 
-    # -- Visualization-only warning (prominent) ---------------------------
-    shiny::div(
-      style = paste(
-        "padding:10px 14px; background:#fff3cd; color:#664d03;",
-        "border:1px solid #ffecb5; border-radius:4px; font-size:13px;",
-        "margin-bottom:12px;"),
-      shiny::tags$strong("Visualization only."),
-      " Smoothed values are intended for exploration. ",
+    info_banner(
+      tone  = "warning",
+      title = "Visualization only.",
+      "Smoothed values are intended for exploration. ",
       "Marker Investigation, Differential Expression, and Pathway Analysis ",
-      "continue to use ", shiny::tags$strong("raw"), " expression by design."
+      "continue to use ", shiny::tags$strong("raw"),
+      " expression by design."
     ),
 
-    # -- Controls ---------------------------------------------------------
-    shiny::fluidRow(
-      shiny::column(3, shiny::uiOutput(ns("assay_ui"))),
-      shiny::column(3, shiny::selectInput(ns("method"), "Method",
-                                          choices  = available_imputation_methods(),
-                                          selected = "neighbor")),
-      shiny::column(3, shiny::numericInput(ns("k"), "k (neighborhood)",
-                                           value = 15, min = 1, step = 1)),
-      shiny::column(3, shiny::uiOutput(ns("target_genes_ui")))
-    ),
-
-    shiny::div(style = "margin: 8px 0 16px 0;",
-      shiny::actionButton(ns("run"), "Run Smoothing",
-                          class = "btn btn-primary"),
-      shiny::actionButton(ns("clear"), "Clear Smoothed Data",
-                          class = "btn btn-default", style = "margin-left:8px;"),
-      shiny::tags$span(style = "margin-left:12px; color:#888; font-size:12px;",
-                       "Smoothing runs only when ", shiny::tags$em("Run Smoothing"), " is clicked.")
+    control_panel(
+      title = "Smoothing settings",
+      shiny::fluidRow(
+        shiny::column(3, shiny::uiOutput(ns("assay_ui"))),
+        shiny::column(3, shiny::selectInput(ns("method"), "Method",
+                                            choices  = available_imputation_methods(),
+                                            selected = "neighbor")),
+        shiny::column(3, shiny::numericInput(ns("k"), "k (neighborhood)",
+                                             value = 15, min = 1, step = 1)),
+        shiny::column(3, shiny::uiOutput(ns("target_genes_ui")))
+      ),
+      actions = shiny::tagList(
+        shiny::actionButton(ns("run"),   "Run smoothing",
+                            class = "btn btn-primary"),
+        shiny::actionButton(ns("clear"), "Clear smoothed data",
+                            class = "btn btn-default"),
+        helper_text(
+          "Smoothing runs only when ", shiny::tags$em("Run smoothing"),
+          " is clicked. ", "Clear resets the Explorer to the raw view.")
+      )
     ),
 
     shiny::uiOutput(ns("status_banner")),
     shiny::uiOutput(ns("input_warning")),
 
-    shiny::hr(),
-
-    # -- Side-by-side raw vs smoothed FeaturePlot -------------------------
-    shiny::fluidRow(
-      shiny::column(12,
-        shiny::uiOutput(ns("gene_picker_ui"))
-      )
+    app_card(
+      title   = "Gene picker",
+      caption = "visualised in both panes",
+      shiny::uiOutput(ns("gene_picker_ui"))
     ),
+
     shiny::fluidRow(
       shiny::column(6,
-        shiny::h4("Raw"),
-        shiny::uiOutput(ns("raw_warning")),
-        shiny::plotOutput(ns("raw_plot"), height = "400px")
+        plot_card(
+          title = "Raw expression",
+          caption = "from `get_gene_expression()`",
+          shiny::uiOutput(ns("raw_warning")),
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("raw_plot"), height = "400px"))
+        )
       ),
       shiny::column(6,
-        shiny::h4("Smoothed"),
-        shiny::uiOutput(ns("smoothed_warning")),
-        shiny::plotOutput(ns("smoothed_plot"), height = "400px")
+        plot_card(
+          title = "Smoothed expression",
+          caption = "from this module's result",
+          shiny::uiOutput(ns("smoothed_warning")),
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("smoothed_plot"), height = "400px"))
+        )
       )
     )
   )
@@ -166,14 +181,13 @@ mod_imputation_server <- function(id, state) {
     output$status_banner <- shiny::renderUI({
       imp <- imp_slot()
       if (is.null(imp))
-        return(shiny::div(style = "padding:8px 12px; background:#eee; border-radius:4px; font-size:13px;",
-                          shiny::tags$strong("Status: "), "Not run yet. Configure controls and click ",
-                          shiny::tags$em("Run Smoothing"), "."))
-      bg <- switch(imp$status, running = "#cfe2ff", completed = "#d1e7dd",
-                   failed = "#f8d7da", "#eee")
-      fg <- switch(imp$status, running = "#084298", completed = "#0a3622",
-                   failed = "#842029", "#333")
-      txt <- switch(imp$status,
+        return(status_banner(
+          shiny::span("Not run yet. Configure controls and click ",
+                      shiny::tags$em("Run smoothing"), "."),
+          tone = "idle"))
+      tone <- switch(imp$status, running = "running",
+                     completed = "success", failed = "danger", "idle")
+      text <- switch(imp$status,
         running   = "Running...",
         completed = sprintf("Completed: %s on %d genes (k=%s, reduction=%s, %d ms).",
                             imp$results$method, length(imp$results$genes),
@@ -182,9 +196,7 @@ mod_imputation_server <- function(id, state) {
                             imp$duration_ms %||% 0L),
         failed    = sprintf("Failed: %s", imp$error_message %||% "(unknown)"),
         "")
-      shiny::div(style = sprintf("padding:8px 12px; background:%s; color:%s; border-radius:4px; font-size:13px;",
-                                 bg, fg),
-                 shiny::tags$strong("Status: "), txt)
+      status_banner(text, tone = tone)
     })
 
     # ---- Gene picker (synced with shared state$selected_gene) ----------
@@ -232,8 +244,7 @@ mod_imputation_server <- function(id, state) {
     output$smoothed_warning <- shiny::renderUI({
       imp <- imp_slot()
       if (is.null(imp) || !identical(imp$status, "completed"))
-        return(shiny::div(style = "padding:8px 12px; font-size:13px; color:#666;",
-                          "Run smoothing to populate this panel."))
+        return(helper_text("Run smoothing to populate this panel."))
       g <- state$selected_gene
       if (is.null(imp$results$expression[[g]]))
         return(friendly_warning(sprintf("Gene '%s' was not included in the smoothing run.", g %||% "")))

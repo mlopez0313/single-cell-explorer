@@ -24,75 +24,78 @@
 mod_annotation_ui <- function(id) {
   ns <- shiny::NS(id)
   shiny::tagList(
-    shiny::h2("Cell Type Annotation & Marker Discovery"),
-    shiny::p("Manage one or more annotation sets. Downstream modules read ",
-             "the active set via ",
-             shiny::tags$code("get_active_annotation(state)"), "."),
+    page_header(
+      eyebrow = "Cell Identity",
+      title   = "Cell Type Annotation & Marker Discovery",
+      lede    = shiny::tagList(
+        "Manage one or more annotation sets. Downstream modules read the ",
+        "active set via ",
+        shiny::tags$code("get_active_annotation(state)"), ".")
+    ),
 
     # -- Set manager -----------------------------------------------------
-    shiny::fluidRow(
-      shiny::column(4, shiny::uiOutput(ns("active_set_ui"))),
-      shiny::column(8, shiny::div(style = "margin-top:25px;",
-        shiny::actionButton(ns("new_set"),  "+ New set",
-                            class = "btn btn-default"),
-        shiny::actionButton(ns("dup_set"),  "Duplicate",
-                            class = "btn btn-default",
-                            style = "margin-left:6px;"),
-        shiny::actionButton(ns("rename_set"), "Rename",
-                            class = "btn btn-default",
-                            style = "margin-left:6px;"),
-        shiny::actionButton(ns("freeze_set"), "Toggle freeze",
-                            class = "btn btn-default",
-                            style = "margin-left:6px;"),
-        shiny::actionButton(ns("delete_set"), "Delete",
-                            class = "btn btn-danger",
-                            style = "margin-left:6px;")
-      ))
+    app_card(
+      title   = "Annotation sets",
+      caption = "create / activate / duplicate / freeze / delete",
+      shiny::fluidRow(
+        shiny::column(4, shiny::uiOutput(ns("active_set_ui"))),
+        shiny::column(8,
+          beside_input(
+            action_row(
+              shiny::actionButton(ns("new_set"),    "+ New set",
+                                  class = "btn btn-default"),
+              shiny::actionButton(ns("dup_set"),    "Duplicate",
+                                  class = "btn btn-default"),
+              shiny::actionButton(ns("rename_set"), "Rename",
+                                  class = "btn btn-default"),
+              shiny::actionButton(ns("freeze_set"), "Toggle freeze",
+                                  class = "btn btn-default"),
+              shiny::actionButton(ns("delete_set"), "Delete",
+                                  class = "btn btn-danger")
+            )
+          )
+        )
+      ),
+      shiny::uiOutput(ns("active_set_summary"))
     ),
-
-    shiny::uiOutput(ns("active_set_summary")),
-
-    shiny::hr(),
 
     # -- Engine + controls ----------------------------------------------
-    shiny::fluidRow(
-      shiny::column(4, shiny::selectInput(
-        ns("engine_id"), "Annotation engine",
-        choices  = list_annotation_engines(),
-        selected = "manual")),
-      shiny::column(4, shiny::uiOutput(ns("cluster_field_ui"))),
-      shiny::column(4, shiny::uiOutput(ns("engine_params_ui")))
-    ),
-    shiny::div(style = "margin: 8px 0 16px 0;",
-      shiny::actionButton(ns("run_engine"), "Run engine",
-                          class = "btn btn-primary"),
-      shiny::actionButton(ns("apply_edits"), "Apply table edits (manual)",
-                          class = "btn btn-success",
-                          style = "margin-left:8px;"),
-      shiny::actionButton(ns("apply_to_metadata"), "Apply to dataset metadata",
-                          class = "btn btn-default",
-                          style = "margin-left:8px;"),
-      shiny::downloadButton(ns("export"), "Download CSV",
-                            class = "btn btn-default",
-                            style = "margin-left:8px;")
+    control_panel(
+      title = "Engine + run",
+      shiny::fluidRow(
+        shiny::column(4, shiny::selectInput(
+          ns("engine_id"), "Annotation engine",
+          choices  = list_annotation_engines(),
+          selected = "manual")),
+        shiny::column(4, shiny::uiOutput(ns("cluster_field_ui"))),
+        shiny::column(4, shiny::uiOutput(ns("engine_params_ui")))
+      ),
+      actions = shiny::tagList(
+        shiny::actionButton(ns("run_engine"),          "Run engine",
+                            class = "btn btn-primary"),
+        shiny::actionButton(ns("apply_edits"),         "Apply table edits (manual)",
+                            class = "btn btn-success"),
+        shiny::actionButton(ns("apply_to_metadata"),   "Apply to dataset metadata",
+                            class = "btn btn-default"),
+        shiny::downloadButton(ns("export"),            "Download CSV",
+                              class = "btn btn-default")
+      )
     ),
 
     shiny::uiOutput(ns("status_banner")),
     shiny::uiOutput(ns("warning")),
 
-    shiny::hr(),
-
     # -- Per-cluster editable table ------------------------------------
-    shiny::h4("Per-cluster labels"),
-    shiny::div(style = "font-size:12px; color:#666; margin-bottom:8px;",
-      shiny::tags$span(style = "background:#fff3cd; padding:1px 6px; border-radius:3px;",
-                       "yellow = engine-suggested"),
-      " ",
-      shiny::tags$span(style = "background:#d1e7dd; padding:1px 6px; border-radius:3px;",
-                       "green = user-confirmed"),
-      " (per-cluster edits expand to per-cell labels on Apply)"
-    ),
-    shiny::uiOutput(ns("table"))
+    app_card(
+      title   = "Per-cluster labels",
+      caption = "edits expand to per-cell labels on Apply",
+      callout_legend(
+        items = list("engine-suggested" = "warning",
+                     "user-confirmed"   = "success"),
+        note  = "Per-cluster edits expand to per-cell labels on Apply."
+      ),
+      shiny::uiOutput(ns("table"))
+    )
   )
 }
 
@@ -105,9 +108,10 @@ mod_annotation_server <- function(id, state) {
     output$active_set_ui <- shiny::renderUI({
       sets <- state$annotation_sets
       if (!length(sets)) {
-        return(shiny::div(style = "padding-top:8px; color:#888;",
-                          shiny::em("No annotation sets yet. Click ",
-                                    shiny::strong("+ New set"), ".")))
+        return(beside_input(
+          helper_text(
+            shiny::em("No annotation sets yet. Click ",
+                      shiny::strong("+ New set"), "."))))
       }
       choices <- setNames(
         vapply(sets, `[[`, character(1), "set_id"),
@@ -127,8 +131,7 @@ mod_annotation_server <- function(id, state) {
     output$active_set_summary <- shiny::renderUI({
       set <- get_active_annotation(state)
       if (is.null(set))
-        return(shiny::div(style = "color:#888; font-size:13px;",
-                          shiny::em("No active annotation set.")))
+        return(helper_text(shiny::em("No active annotation set.")))
       stale <- if (!is.null(set$cluster_field_used) &&
                    !is.na(set$cluster_field_used) &&
                    !is.null(state$active_dataset)) {
@@ -137,20 +140,23 @@ mod_annotation_server <- function(id, state) {
                                             character())))
         !identical(set$n_clusters_at_creation, cur_n)
       } else FALSE
-      shiny::div(style = "font-size:13px; color:#444; margin-top:4px;",
-        shiny::strong("Active: "), annotation_set_label(set),
-        shiny::tags$br(),
-        shiny::tags$small(sprintf(
-          "id=%s | engine=%s | cluster_field=%s | n_clusters_at_creation=%s | registry=%s",
-          set$set_id,
-          set$engine_id %||% "?",
-          set$cluster_field_used %||% "NA",
-          set$n_clusters_at_creation %||% "NA",
-          set$marker_registry_version %||% "NA")),
+      shiny::tagList(
+        shiny::div(class = "set-summary",
+          shiny::strong("Active: "), annotation_set_label(set),
+          shiny::tags$br(),
+          helper_text(sprintf(
+            "id=%s | engine=%s | cluster_field=%s | n_clusters_at_creation=%s | registry=%s",
+            set$set_id,
+            set$engine_id %||% "?",
+            set$cluster_field_used %||% "NA",
+            set$n_clusters_at_creation %||% "NA",
+            set$marker_registry_version %||% "NA"))
+        ),
         if (stale)
-          shiny::div(style = "color:#a30; margin-top:4px;",
-                     shiny::strong("Stale-set warning: "),
-                     "cluster cardinality has changed since this set was built.")
+          info_banner(
+            tone  = "warning",
+            title = "Stale-set warning",
+            "Cluster cardinality has changed since this set was built.")
       )
     })
 
@@ -257,8 +263,8 @@ mod_annotation_server <- function(id, state) {
                               value = 0, step = 0.1)
         ))
       }
-      shiny::div(style = "color:#888;",
-        shiny::em(sprintf("Engine '%s' has no extra params.", input$engine_id)))
+      helper_text(shiny::em(sprintf("Engine '%s' has no extra params.",
+                                    input$engine_id)))
     })
 
     # ---- Per-cluster table -------------------------------------------
@@ -292,12 +298,14 @@ mod_annotation_server <- function(id, state) {
       rows <- lapply(ids, function(cl) {
         lab <- cur_map[cl]
         is_confirmed <- !is.na(lab) && nzchar(lab) && !identical(lab, "Unknown")
-        row_bg <- if (is_confirmed) "#d1e7dd" else "#fff3cd"
-        shiny::tags$tr(style = sprintf("background:%s;", row_bg),
+        row_class <- if (is_confirmed) "is-confirmed" else "is-suggested"
+        shiny::tags$tr(class = row_class,
           shiny::tags$td(shiny::strong(cl)),
-          shiny::tags$td(format(n_cells[cl] %||% NA_integer_, big.mark = ",")),
+          shiny::tags$td(class = "sce-tabular",
+                         format(n_cells[cl] %||% NA_integer_, big.mark = ",")),
           shiny::tags$td(if (is.na(lab) || !nzchar(lab)) "-" else lab),
-          shiny::tags$td(if (is.na(cur_score[cl])) "-"
+          shiny::tags$td(class = "sce-tabular",
+                         if (is.na(cur_score[cl])) "-"
                          else sprintf("%.2f", cur_score[cl])),
           shiny::tags$td(shiny::textInput(
             ns(paste0("edit_", cl)), label = NULL,
@@ -308,8 +316,7 @@ mod_annotation_server <- function(id, state) {
             value = "", placeholder = "optional"))
         )
       })
-      shiny::tags$table(class = "table table-striped",
-                        style = "font-size:13px;",
+      shiny::tags$table(class = "cluster-table",
                         shiny::tags$thead(header),
                         shiny::tags$tbody(rows))
     })
@@ -421,14 +428,17 @@ mod_annotation_server <- function(id, state) {
       n_labelled <- sum(!is.na(set$cell_labels) & nzchar(set$cell_labels) &
                         set$cell_labels != "Unknown")
       n_total    <- length(set$cell_labels)
-      shiny::div(style = "padding:8px 12px; background:#e8f4fd; color:#084298; border-radius:4px; font-size:13px;",
-                 shiny::tags$strong("Per-cell labels: "),
-                 sprintf("%d / %d assigned (%.0f%%). ",
-                         n_labelled, n_total,
-                         if (n_total) 100 * n_labelled / n_total else 0),
-                 sprintf("engine=%s; registry=%s",
-                         set$engine_id %||% "?",
-                         set$marker_registry_version %||% "n/a"))
+      status_banner(
+        shiny::span(
+          shiny::tags$strong("Per-cell labels: "),
+          sprintf("%d / %d assigned (%.0f%%). ",
+                  n_labelled, n_total,
+                  if (n_total) 100 * n_labelled / n_total else 0),
+          sprintf("engine=%s; registry=%s",
+                  set$engine_id %||% "?",
+                  set$marker_registry_version %||% "n/a")),
+        tone  = "info",
+        label = "Active set")
     })
 
     # ---- Export ------------------------------------------------------

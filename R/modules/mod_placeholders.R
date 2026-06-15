@@ -12,24 +12,14 @@
 # ============================================================================
 
 #' Standard "coming soon" panel used by every disabled module's UI.
+#'
+#' Thin wrapper around the shared `coming_soon_card()` primitive
+#' (see `R/ui_components.R`) so this file no longer hand-rolls inline
+#' styles. The `id` argument is kept for API compatibility with the
+#' registry's `ui_fn(id)` contract even though the placeholder body is
+#' static.
 coming_soon_ui <- function(id, title, description) {
-  ns <- shiny::NS(id)
-  shiny::div(
-    class = "coming-soon-panel",
-    style = paste(
-      "padding:32px; border:1px dashed #bbb; border-radius:8px;",
-      "background:#fafafa; color:#555; max-width:720px;"
-    ),
-    shiny::h2(title),
-    shiny::tags$span(
-      style = "display:inline-block; padding:2px 8px; background:#ffe8a1; border-radius:4px; font-size:12px; font-weight:600;",
-      "COMING SOON"
-    ),
-    shiny::p(style = "margin-top:16px;", description),
-    shiny::p(style = "color:#888; font-size:13px;",
-             "This module is registered but not yet implemented. ",
-             "See docs/ADDING_MODULES.md to contribute.")
-  )
+  coming_soon_card(title = title, description = description)
 }
 
 # Empty server used by every disabled module. Kept as a function so individual

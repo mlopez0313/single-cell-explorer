@@ -9,53 +9,69 @@
 # real implementation should keep the same output schema:
 #   group | gene | avg_log2FC | pct_in | pct_out | p_value
 # so nothing in this module has to change.
+#
+# UI composition uses the shared primitives in `R/ui_components.R`. Server
+# logic (compute, observers) is unchanged.
 # ============================================================================
 
 mod_marker_investigation_ui <- function(id) {
   ns <- shiny::NS(id)
   shiny::tagList(
-    shiny::h2("Marker Investigation"),
-    shiny::p("Find genes that distinguish groups within a metadata field. ",
-             "Send a gene to the Explorer to color its FeaturePlot."),
-
-    # -- Controls ----------------------------------------------------------
-    shiny::fluidRow(
-      shiny::column(3, shiny::uiOutput(ns("group_field_ui"))),
-      shiny::column(3, shiny::uiOutput(ns("group_ui"))),
-      shiny::column(2, shiny::numericInput(ns("top_n"), "Top N per group",
-                                           value = 6, min = 1, max = 50, step = 1)),
-      shiny::column(2, shiny::numericInput(ns("min_log2fc"), "min |log2FC|",
-                                           value = 0, min = 0, step = 0.1)),
-      shiny::column(2, shiny::div(style = "margin-top:25px;",
-                                  shiny::actionButton(ns("recompute"), "Find markers",
-                                                      class = "btn btn-primary")))
+    page_header(
+      eyebrow = "Cell Identity",
+      title   = "Marker Investigation",
+      lede    = paste("Find genes that distinguish groups within a metadata",
+                      "field. Send any marker gene to the Explorer to color",
+                      "its FeaturePlot.")
     ),
 
-    shiny::hr(),
+    control_panel(
+      title = "Marker query",
+      shiny::fluidRow(
+        shiny::column(3, shiny::uiOutput(ns("group_field_ui"))),
+        shiny::column(3, shiny::uiOutput(ns("group_ui"))),
+        shiny::column(3, shiny::numericInput(ns("top_n"), "Top N per group",
+                                             value = 6, min = 1, max = 50, step = 1)),
+        shiny::column(3, shiny::numericInput(ns("min_log2fc"), "min |log2FC|",
+                                             value = 0, min = 0, step = 0.1))
+      ),
+      actions = shiny::tagList(
+        shiny::actionButton(ns("recompute"), "Find markers",
+                            class = "btn btn-primary"),
+        helper_text("Markers refresh only when ",
+                    shiny::tags$em("Find markers"), " is clicked.")
+      )
+    ),
 
-    # -- Markers table -----------------------------------------------------
-    shiny::h4(shiny::textOutput(ns("table_title"), inline = TRUE)),
-    shiny::uiOutput(ns("table_warning")),
-    shiny::tableOutput(ns("markers_table")),
+    table_card(
+      title   = shiny::textOutput(ns("table_title"), inline = TRUE),
+      caption = "ranked by avg_log2FC and pct_in/out",
+      shiny::uiOutput(ns("table_warning")),
+      shiny::tableOutput(ns("markers_table")),
+      max_height = "420px"
+    ),
 
-    shiny::hr(),
-
-    # -- Highlight a gene + push to Explorer ------------------------------
     shiny::fluidRow(
       shiny::column(6,
-        shiny::h4("Push to Explorer"),
-        shiny::uiOutput(ns("highlight_ui")),
-        shiny::div(
-          shiny::actionButton(ns("send_to_explorer"), "Send to Explorer",
-                              class = "btn btn-default"),
-          shiny::tags$span(style = "margin-left:12px; color:#888; font-size:12px;",
-                           shiny::textOutput(ns("push_status"), inline = TRUE))
+        app_card(
+          title   = "Push to Explorer",
+          caption = "send a marker into the shared state",
+          shiny::uiOutput(ns("highlight_ui")),
+          action_row(
+            shiny::actionButton(ns("send_to_explorer"), "Send to Explorer",
+                                class = "btn btn-default"),
+            helper = shiny::textOutput(ns("push_status"), inline = TRUE)
+          )
         )
       ),
       shiny::column(6,
-        shiny::h4(shiny::textOutput(ns("box_title"), inline = TRUE)),
-        shiny::uiOutput(ns("box_warning")),
-        shiny::plotOutput(ns("box_plot"), height = "320px")
+        plot_card(
+          title   = shiny::textOutput(ns("box_title"), inline = TRUE),
+          caption = "expression by group",
+          shiny::uiOutput(ns("box_warning")),
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("box_plot"), height = "320px"))
+        )
       )
     )
   )

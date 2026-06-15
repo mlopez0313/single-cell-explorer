@@ -21,51 +21,61 @@
 mod_regulons_ui <- function(id) {
   ns <- shiny::NS(id)
   shiny::tagList(
-    shiny::h2("Regulons / Network Analysis"),
+    page_header(
+      eyebrow = "Advanced Analysis",
+      title   = "Regulons / Network Analysis",
+      lede    = paste("Score TF regulons per cell with AUCell and visualise",
+                      "activity as a regulon-by-group heatmap plus a",
+                      "per-regulon embedding overlay.")
+    ),
 
-    # -- Demo warning ---------------------------------------------------
-    shiny::div(
-      style = paste(
-        "padding:10px 14px; background:#fff3cd; color:#664d03;",
-        "border:1px solid #ffecb5; border-radius:4px; font-size:13px;",
-        "margin-bottom:12px;"),
-      shiny::tags$strong("Regulon activity \u2014 exploratory."),
-      " Scores are per-cell enrichment of each TF's target set in the ",
+    info_banner(
+      tone  = "warning",
+      title = "Regulon activity \u2014 exploratory.",
+      "Scores are per-cell enrichment of each TF's target set in the ",
       "cell's top-expressed genes (AUCell). The regulons themselves ",
       "come from a curated source (mock / DoRothEA / future SCENIC ",
       "runs), not from the data."
     ),
 
-    # -- Controls -------------------------------------------------------
-    shiny::fluidRow(
-      shiny::column(3, shiny::uiOutput(ns("source_ui"))),
-      shiny::column(3, shiny::uiOutput(ns("engine_ui"))),
-      shiny::column(3, shiny::uiOutput(ns("group_field_ui"))),
-      shiny::column(3, shiny::uiOutput(ns("top_n_ui")))
+    control_panel(
+      title = "Scoring settings",
+      shiny::fluidRow(
+        shiny::column(3, shiny::uiOutput(ns("source_ui"))),
+        shiny::column(3, shiny::uiOutput(ns("engine_ui"))),
+        shiny::column(3, shiny::uiOutput(ns("group_field_ui"))),
+        shiny::column(3, shiny::uiOutput(ns("top_n_ui")))
+      ),
+      actions = shiny::tagList(
+        shiny::actionButton(ns("run"), "Score regulons",
+                            class = "btn btn-primary"),
+        helper_text("Scoring runs only when this button is clicked.")
+      )
     ),
-    shiny::div(style = "margin: 8px 0 16px 0;",
-      shiny::actionButton(ns("run"), "Score regulons",
-                          class = "btn btn-primary"),
-      shiny::tags$span(style = "margin-left:12px; color:#888; font-size:12px;",
-                       "Scoring runs only when this button is clicked.")
-    ),
+
     shiny::uiOutput(ns("status_banner")),
     shiny::uiOutput(ns("input_warning")),
 
-    shiny::hr(),
-
     shiny::fluidRow(
       shiny::column(7,
-        shiny::h4("Regulon \u00d7 group heatmap (mean AUC)"),
-        shiny::uiOutput(ns("heatmap_warning")),
-        shiny::plotOutput(ns("heatmap"), height = "420px")
+        plot_card(
+          title   = "Regulon \u00d7 group heatmap",
+          caption = "mean AUC by group",
+          shiny::uiOutput(ns("heatmap_warning")),
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("heatmap"), height = "420px"))
+        )
       ),
       shiny::column(5,
-        shiny::h4(shiny::textOutput(ns("emb_title"), inline = TRUE)),
-        shiny::uiOutput(ns("regulon_picker_ui")),
-        shiny::uiOutput(ns("reduction_ui")),
-        shiny::uiOutput(ns("emb_warning")),
-        shiny::plotOutput(ns("emb_plot"), height = "360px")
+        plot_card(
+          title   = shiny::textOutput(ns("emb_title"), inline = TRUE),
+          caption = "per-cell AUC overlay",
+          shiny::uiOutput(ns("regulon_picker_ui")),
+          shiny::uiOutput(ns("reduction_ui")),
+          shiny::uiOutput(ns("emb_warning")),
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("emb_plot"), height = "360px"))
+        )
       )
     )
   )
@@ -178,28 +188,23 @@ mod_regulons_server <- function(id, state) {
     output$status_banner <- shiny::renderUI({
       tr <- rg_slot()
       if (is.null(tr))
-        return(shiny::div(style = "padding:8px 12px; background:#eee; border-radius:4px; font-size:13px;",
-                          shiny::tags$strong("Status: "),
-                          "Not run yet. Pick a source + engine and click ",
-                          shiny::tags$em("Score regulons"), "."))
-      bg <- switch(tr$status, running = "#cfe2ff", completed = "#d1e7dd",
-                   failed = "#f8d7da", "#eee")
-      fg <- switch(tr$status, running = "#084298", completed = "#0a3622",
-                   failed = "#842029", "#333")
-      shiny::div(style = sprintf(
-        "padding:8px 12px; background:%s; color:%s; border-radius:4px; font-size:13px;",
-        bg, fg),
-        shiny::tags$strong("Status: "),
-        switch(tr$status,
-          running   = "Running...",
-          completed = sprintf(
-            "Completed. Source=%s, engine=%s, %d regulons, %d cells (%d ms).",
-            tr$params$source %||% "?",  tr$params$engine %||% "?",
-            length(tr$results$regulon_ids %||% character()),
-            length(tr$results$cell_ids %||% character()),
-            tr$duration_ms %||% 0L),
-          failed    = sprintf("Failed: %s", tr$error_message %||% "?"),
-          tr$status))
+        return(status_banner(
+          shiny::span("Not run yet. Pick a source + engine and click ",
+                      shiny::tags$em("Score regulons"), "."),
+          tone = "idle"))
+      tone <- switch(tr$status, running = "running", completed = "success",
+                     failed = "danger", "idle")
+      txt <- switch(tr$status,
+        running   = "Running...",
+        completed = sprintf(
+          "Completed. Source=%s, engine=%s, %d regulons, %d cells (%d ms).",
+          tr$params$source %||% "?",  tr$params$engine %||% "?",
+          length(tr$results$regulon_ids %||% character()),
+          length(tr$results$cell_ids %||% character()),
+          tr$duration_ms %||% 0L),
+        failed    = sprintf("Failed: %s", tr$error_message %||% "?"),
+        tr$status)
+      status_banner(txt, tone = tone)
     })
 
     # ---- Heatmap ------------------------------------------------------

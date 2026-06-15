@@ -1,25 +1,74 @@
 # ============================================================================
 # Sidebar navigation
 # ----------------------------------------------------------------------------
-# Renders the module list, grouped by category. Each entry is a button that
-# sets `state$active_module`. Disabled modules are shown but visually muted
-# and do not change the active module on click.
+# Renders the brand block, dataset-load region, and module list (grouped by
+# category). Each entry is a button that sets `state$active_module`. Disabled
+# modules are shown but visually muted and do not change the active module.
+#
+# All visual styling lives in `www/styles.css` (`.app-sidebar`,
+# `.sidebar-nav__*`). Reusable presentation helpers come from
+# `R/ui_components.R`.
 # ============================================================================
+
+#' Bootstrap icon name to associate with each module category.
+#' Used for tasteful section icons when `bsicons` is installed.
+.SCE_CATEGORY_ICONS <- c(
+  "Overview"            = "speedometer2",
+  "Exploration"         = "binoculars",
+  "Cell Identity"       = "person-badge",
+  "Statistics"          = "bar-chart",
+  "Functional Analysis" = "diagram-3",
+  "Advanced Analysis"   = "stars"
+)
+
+#' Per-module icon overrides. Falls back to the category icon when missing.
+.SCE_MODULE_ICONS <- c(
+  dataset_overview        = "table",
+  scrna_explorer          = "scatter-chart",
+  marker_investigation    = "search",
+  annotation              = "person-badge",
+  differential_expression = "sliders",
+  pathway_analysis        = "diagram-3",
+  imputation              = "droplet-half",
+  trajectory              = "graph-up-arrow",
+  regulons                = "share"
+)
+
+.sce_module_icon <- function(mod) {
+  override <- .SCE_MODULE_ICONS[[mod$id]]
+  if (!is.null(override)) return(override)
+  unname(.SCE_CATEGORY_ICONS[mod$category])
+}
 
 #' Static sidebar shell (populated by the server-side `sidebar_server`).
 sidebar_ui <- function() {
   shiny::tagList(
-    shiny::div(class = "sidebar-section",
-      shiny::h5("Dataset"),
-      shiny::actionButton("load_mock_dataset", "Load mock dataset",
-                          class = "btn btn-primary btn-sm", width = "100%"),
-      shiny::div(style = "margin-top:8px; font-size:12px; color:#888;",
+    # Brand block: signals "this is a productized app", not a prototype.
+    shiny::div(
+      class = "app-sidebar__brand",
+      shiny::div(class = "app-sidebar__brand-mark",
+                 app_icon("droplet", class = "")),
+      shiny::div(
+        class = "app-sidebar__brand-text",
+        shiny::span(class = "app-sidebar__brand-name", "scRNA Explorer"),
+        shiny::span(class = "app-sidebar__brand-sub",  "single-cell workspace")
+      )
+    ),
+    # Dataset region.
+    shiny::div(
+      class = "sidebar-section",
+      shiny::p(class = "sidebar-section__label", "Dataset"),
+      shiny::actionButton(
+        "load_mock_dataset", "Load mock dataset",
+        class = "btn btn-primary btn-sm", width = "100%"),
+      shiny::div(class = "sidebar-dataset-status",
                  shiny::textOutput("sidebar_dataset_status", inline = TRUE))
     ),
-    shiny::hr(),
-    shiny::div(class = "sidebar-section",
-      shiny::h5("Modules"),
-      shiny::uiOutput("sidebar_modules")
+    # Module navigation.
+    shiny::div(
+      class = "sidebar-section",
+      shiny::p(class = "sidebar-section__label", "Modules"),
+      shiny::uiOutput("sidebar_modules", class = "sidebar-nav")
     )
   )
 }
@@ -39,11 +88,8 @@ sidebar_server <- function(input, output, session, state) {
     grouped <- modules_by_category()
     groups <- lapply(names(grouped), function(cat) {
       mods <- grouped[[cat]]
-      shiny::div(class = "sidebar-category",
-        shiny::tags$div(
-          style = "font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#888; margin:12px 0 4px 0;",
-          cat
-        ),
+      shiny::tagList(
+        shiny::div(class = "sidebar-nav__category", cat),
         lapply(mods, function(m) module_button(m, state$active_module))
       )
     })
@@ -68,26 +114,26 @@ sidebar_server <- function(input, output, session, state) {
 #' Render one sidebar entry. Enabled -> actionButton; disabled -> muted div.
 module_button <- function(mod, active_id) {
   is_active <- identical(mod$id, active_id)
+  icon_name <- .sce_module_icon(mod)
   if (!mod$enabled) {
     return(shiny::div(
-      class = "sidebar-module disabled",
-      style = paste(
-        "padding:6px 10px; margin:2px 0; border-radius:4px; color:#aaa;",
-        "background:#f5f5f5; font-size:13px; cursor:not-allowed;",
-        "display:flex; justify-content:space-between; align-items:center;"
-      ),
-      title = mod$description,
-      shiny::span(mod$name),
-      shiny::tags$span(style = "font-size:10px; background:#ddd; padding:1px 6px; border-radius:8px;",
-                       "soon")
+      class    = "sidebar-nav__item is-disabled",
+      title    = mod$description,
+      `aria-disabled` = "true",
+      app_icon(icon_name),
+      shiny::span(class = "sidebar-nav__label", mod$name),
+      shiny::span(class = "sidebar-nav__hint",  "soon")
     ))
   }
+  classes <- c("sidebar-nav__item", if (is_active) "is-active")
   shiny::actionButton(
     inputId = paste0("nav_", mod$id),
-    label   = mod$name,
-    class   = if (is_active) "btn btn-primary btn-sm sidebar-module active"
-              else            "btn btn-light    btn-sm sidebar-module",
-    style   = "width:100%; text-align:left; margin:2px 0;",
-    title   = mod$description
+    label   = htmltools::tagList(
+      app_icon(icon_name),
+      shiny::span(class = "sidebar-nav__label", mod$name)
+    ),
+    class   = paste(classes, collapse = " "),
+    title   = mod$description,
+    `aria-current` = if (is_active) "page"
   )
 }

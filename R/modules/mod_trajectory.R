@@ -19,86 +19,105 @@
 mod_trajectory_ui <- function(id) {
   ns <- shiny::NS(id)
   shiny::tagList(
-    shiny::h2("Trajectory / Pseudotime"),
+    page_header(
+      eyebrow = "Advanced Analysis",
+      title   = "Trajectory / Pseudotime",
+      lede    = paste("Generate a deterministic mock pseudotime from a",
+                      "chosen root cluster, or rescale a numeric metadata",
+                      "column. Optionally bake the result into a new",
+                      "metadata column for use across modules.")
+    ),
 
-    # -- Demo warning -----------------------------------------------------
-    shiny::div(
-      style = paste(
-        "padding:10px 14px; background:#fff3cd; color:#664d03;",
-        "border:1px solid #ffecb5; border-radius:4px; font-size:13px;",
-        "margin-bottom:12px;"),
-      shiny::tags$strong("Mock pseudotime \u2014 exploratory only."),
-      " This is not lineage inference. DE, Marker Investigation, Pathway ",
+    info_banner(
+      tone  = "warning",
+      title = "Mock pseudotime \u2014 exploratory only.",
+      "This is not lineage inference. DE, Marker Investigation, Pathway ",
       "Analysis, and Imputation continue to use raw expression and the ",
       "standard metadata columns; they do not consume pseudotime."
     ),
 
-    # -- Controls ---------------------------------------------------------
-    shiny::fluidRow(
-      shiny::column(3, shiny::uiOutput(ns("reduction_ui"))),
-      shiny::column(3, shiny::uiOutput(ns("source_ui"))),
-      shiny::column(6, shiny::uiOutput(ns("source_specific_ui")))
-    ),
-    shiny::div(style = "margin: 8px 0 16px 0;",
-      shiny::actionButton(ns("run"), "Run / Generate Pseudotime",
-                          class = "btn btn-primary"),
-      shiny::actionButton(ns("apply_to_metadata"),
-                          "Apply pseudotime to dataset",
-                          class = "btn btn-default",
-                          style = "margin-left:8px;"),
-      shiny::tags$span(style = "margin-left:12px; color:#888; font-size:12px;",
-                       "Pseudotime is generated only when Run is clicked. ",
-                       "Apply bakes the result into a new metadata column.")
-    ),
-    shiny::fluidRow(
-      shiny::column(3,
-        shiny::checkboxInput(ns("apply_with_bins"),
-                             "Also add bin column when applying",
-                             value = FALSE)),
-      shiny::column(3,
-        shiny::numericInput(ns("apply_bins"), "Number of bins",
-                            value = 10L, min = 2L, max = 100L, step = 1L))
+    control_panel(
+      title = "Pseudotime source",
+      shiny::fluidRow(
+        shiny::column(3, shiny::uiOutput(ns("reduction_ui"))),
+        shiny::column(3, shiny::uiOutput(ns("source_ui"))),
+        shiny::column(6, shiny::uiOutput(ns("source_specific_ui")))
+      ),
+      shiny::fluidRow(
+        shiny::column(3,
+          shiny::checkboxInput(ns("apply_with_bins"),
+                               "Also add bin column when applying",
+                               value = FALSE)),
+        shiny::column(3,
+          shiny::numericInput(ns("apply_bins"), "Number of bins",
+                              value = 10L, min = 2L, max = 100L, step = 1L))
+      ),
+      actions = shiny::tagList(
+        shiny::actionButton(ns("run"), "Run / generate pseudotime",
+                            class = "btn btn-primary"),
+        shiny::actionButton(ns("apply_to_metadata"),
+                            "Apply pseudotime to dataset",
+                            class = "btn btn-default"),
+        helper_text(
+          "Pseudotime is generated only when Run is clicked. ",
+          "Apply bakes the result into a new metadata column.")
+      )
     ),
 
     shiny::uiOutput(ns("status_banner")),
     shiny::uiOutput(ns("input_warning")),
 
-    shiny::hr(),
-
     # -- Summary + two embedding plots side-by-side ----------------------
     shiny::fluidRow(
       shiny::column(3,
-        shiny::h4("Summary"),
-        shiny::verbatimTextOutput(ns("summary"))
+        app_card(
+          title   = "Summary",
+          caption = "pseudotime stats",
+          shiny::verbatimTextOutput(ns("summary"))
+        )
       ),
       shiny::column(5,
-        shiny::h4("Embedding by pseudotime"),
-        shiny::uiOutput(ns("pt_plot_warning")),
-        shiny::plotOutput(ns("pt_plot"), height = "400px")
+        plot_card(
+          title   = "Embedding by pseudotime",
+          caption = "from the selected reduction",
+          shiny::uiOutput(ns("pt_plot_warning")),
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("pt_plot"), height = "400px"))
+        )
       ),
       shiny::column(4,
-        shiny::h4("Root group"),
-        shiny::uiOutput(ns("root_plot_warning")),
-        shiny::plotOutput(ns("root_plot"), height = "400px")
+        plot_card(
+          title   = "Root group",
+          caption = "highlights the chosen root",
+          shiny::uiOutput(ns("root_plot_warning")),
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("root_plot"), height = "400px"))
+        )
       )
     ),
-
-    shiny::hr(),
 
     # -- Gene trend along pseudotime -------------------------------------
     shiny::fluidRow(
       shiny::column(3,
-        shiny::h4("Gene"),
-        shiny::uiOutput(ns("gene_picker_ui")),
-        shiny::actionButton(ns("send_to_explorer"), "Send to Explorer",
-                            class = "btn btn-default"),
-        shiny::div(style = "margin-top:10px; font-size:12px; color:#888;",
-                   shiny::textOutput(ns("send_status")))
+        app_card(
+          title   = "Gene",
+          caption = "synced with Explorer",
+          shiny::uiOutput(ns("gene_picker_ui")),
+          action_row(
+            shiny::actionButton(ns("send_to_explorer"), "Send to Explorer",
+                                class = "btn btn-default")
+          ),
+          microcaption(shiny::textOutput(ns("send_status"), inline = TRUE))
+        )
       ),
       shiny::column(9,
-        shiny::h4(shiny::textOutput(ns("trend_title"), inline = TRUE)),
-        shiny::uiOutput(ns("trend_warning")),
-        shiny::plotOutput(ns("trend_plot"), height = "360px")
+        plot_card(
+          title   = shiny::textOutput(ns("trend_title"), inline = TRUE),
+          caption = "binned average expression",
+          shiny::uiOutput(ns("trend_warning")),
+          shiny::div(class = "plot-container",
+            shiny::plotOutput(ns("trend_plot"), height = "360px"))
+        )
       )
     )
   )
@@ -276,13 +295,12 @@ mod_trajectory_server <- function(id, state) {
     output$status_banner <- shiny::renderUI({
       tr <- tr_slot()
       if (is.null(tr))
-        return(shiny::div(style = "padding:8px 12px; background:#eee; border-radius:4px; font-size:13px;",
-                          shiny::tags$strong("Status: "), "Not run yet. Configure controls and click ",
-                          shiny::tags$em("Run / Generate Pseudotime"), "."))
-      bg <- switch(tr$status, running = "#cfe2ff", completed = "#d1e7dd",
-                   failed = "#f8d7da", "#eee")
-      fg <- switch(tr$status, running = "#084298", completed = "#0a3622",
-                   failed = "#842029", "#333")
+        return(status_banner(
+          shiny::span("Not run yet. Configure controls and click ",
+                      shiny::tags$em("Run / generate pseudotime"), "."),
+          tone = "idle"))
+      tone <- switch(tr$status, running = "running", completed = "success",
+                     failed = "danger", "idle")
       txt <- switch(tr$status,
         running   = "Running...",
         completed = {
@@ -303,9 +321,7 @@ mod_trajectory_server <- function(id, state) {
         },
         failed    = sprintf("Failed: %s", tr$error_message %||% "(unknown)"),
         "")
-      shiny::div(style = sprintf("padding:8px 12px; background:%s; color:%s; border-radius:4px; font-size:13px;",
-                                 bg, fg),
-                 shiny::tags$strong("Status: "), txt)
+      status_banner(txt, tone = tone)
     })
 
     # ---- Summary --------------------------------------------------------
@@ -329,8 +345,7 @@ mod_trajectory_server <- function(id, state) {
       ds <- state$active_dataset
       if (is.null(ds)) return(friendly_warning("No dataset loaded."))
       if (!has_trajectory_results(state))
-        return(shiny::div(style = "padding:8px 12px; font-size:13px; color:#666;",
-                          "Run pseudotime to populate this panel."))
+        return(helper_text("Run pseudotime to populate this panel."))
       red <- tr_slot()$results$reduction_used %||% input$reduction
       if (is.null(get_embedding(ds, red)))
         return(friendly_warning(sprintf("Reduction '%s' is not available.", red %||% "")))
@@ -356,8 +371,7 @@ mod_trajectory_server <- function(id, state) {
       if (is.null(ds)) return(friendly_warning("No dataset loaded."))
       tr <- tr_slot()
       if (is.null(tr) || !identical(tr$status, "completed"))
-        return(shiny::div(style = "padding:8px 12px; font-size:13px; color:#666;",
-                          "Run pseudotime to populate this panel."))
+        return(helper_text("Run pseudotime to populate this panel."))
       NULL
     })
     output$root_plot <- shiny::renderPlot({
@@ -419,8 +433,7 @@ mod_trajectory_server <- function(id, state) {
       ds <- state$active_dataset
       if (is.null(ds)) return(friendly_warning("No dataset loaded."))
       if (!has_trajectory_results(state))
-        return(shiny::div(style = "padding:8px 12px; font-size:13px; color:#666;",
-                          "Run pseudotime first."))
+        return(helper_text("Run pseudotime first."))
       g <- state$selected_gene
       if (!validate_gene(ds, g))
         return(friendly_warning(sprintf("Gene '%s' is not available.", g %||% "")))

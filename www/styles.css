@@ -1,0 +1,923 @@
+/* ============================================================================
+ * scRNA Explorer -- application stylesheet
+ * ----------------------------------------------------------------------------
+ * Layered over the bslib theme defined in `app.R`. Custom properties under
+ * :root drive a single restrained palette for everything below.
+ *
+ * Organisation:
+ *   1. Design tokens   (`:root`)
+ *   2. Page primitives (`html`, `body`, `.app-shell`)
+ *   3. Sidebar         (`.app-sidebar`, `.sidebar-nav`)
+ *   4. Workspace shell (`.app-workspace`, `.page-header`)
+ *   5. Surfaces        (`.app-card`, `.metric-card`, `.plot-card`,
+ *                       `.control-panel`)
+ *   6. States          (`.empty-state`, `.info-banner`, `.status-pill`,
+ *                       `.section-title`)
+ *   7. Inputs + typography touch-ups
+ * ========================================================================== */
+
+/* ----- 1. Design tokens --------------------------------------------------- */
+:root {
+  /* Palette: cool, restrained, suitable for scientific UI */
+  --sce-bg:            #f7f8fb;   /* workspace background    */
+  --sce-surface:       #ffffff;   /* card / sidebar surface  */
+  --sce-surface-alt:   #f1f3f9;   /* subtle inner surface    */
+  --sce-border:        #e3e6ed;   /* hairline border         */
+  --sce-border-strong: #cdd1dc;
+  --sce-divider:       #eceff5;
+
+  --sce-fg:            #0f172a;   /* primary text            */
+  --sce-fg-muted:      #5a6376;   /* secondary text          */
+  --sce-fg-subtle:     #8b93a4;   /* tertiary / labels       */
+
+  --sce-accent:        #1d6f6a;   /* teal-700 accent         */
+  --sce-accent-strong: #155551;
+  --sce-accent-soft:   #e5f1f0;
+
+  --sce-info:          #1e4ed8;
+  --sce-info-soft:     #e7edff;
+  --sce-success:       #2f7d32;
+  --sce-success-soft:  #e6f4e8;
+  --sce-warning:       #b25400;
+  --sce-warning-soft:  #fcefdc;
+  --sce-danger:        #b3261e;
+  --sce-danger-soft:   #fdecea;
+
+  /* Typography */
+  --sce-font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, sans-serif;
+  --sce-font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono",
+                   "Menlo", "Consolas", monospace;
+
+  /* Spacing scale (4px grid) */
+  --sce-sp-1: 4px;
+  --sce-sp-2: 8px;
+  --sce-sp-3: 12px;
+  --sce-sp-4: 16px;
+  --sce-sp-5: 20px;
+  --sce-sp-6: 24px;
+  --sce-sp-7: 32px;
+  --sce-sp-8: 40px;
+
+  /* Radii, shadows */
+  --sce-radius-sm: 4px;
+  --sce-radius:    8px;
+  --sce-radius-lg: 12px;
+  --sce-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --sce-shadow:    0 1px 3px rgba(15, 23, 42, 0.06),
+                   0 1px 2px rgba(15, 23, 42, 0.04);
+
+  /* Layout dimensions */
+  --sce-sidebar-w: 280px;
+  --sce-workspace-max: 1320px;
+}
+
+/* ----- 2. Page primitives ------------------------------------------------- */
+html, body {
+  font-family: var(--sce-font-sans);
+  font-feature-settings: "ss01", "cv11", "tnum";
+  color: var(--sce-fg);
+  background: var(--sce-bg);
+}
+
+body { padding: 0 !important; }
+
+code, kbd, pre, samp,
+.sce-mono {
+  font-family: var(--sce-font-mono);
+  font-feature-settings: "tnum", "zero";
+}
+
+.sce-tabular { font-variant-numeric: tabular-nums; }
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  align-items: stretch;
+}
+
+/* ----- 3. Sidebar --------------------------------------------------------- */
+.app-sidebar {
+  width: var(--sce-sidebar-w);
+  flex: 0 0 var(--sce-sidebar-w);
+  background: var(--sce-surface);
+  border-right: 1px solid var(--sce-border);
+  padding: var(--sce-sp-5) var(--sce-sp-5) var(--sce-sp-6);
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.app-sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sce-sp-3);
+  padding-bottom: var(--sce-sp-4);
+  margin-bottom: var(--sce-sp-4);
+  border-bottom: 1px solid var(--sce-divider);
+}
+.app-sidebar__brand-mark {
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--sce-radius-sm);
+  background: var(--sce-accent-soft);
+  color: var(--sce-accent);
+  font-weight: 600;
+  font-size: 14px;
+}
+.app-sidebar__brand-text {
+  display: flex; flex-direction: column;
+  line-height: 1.15;
+}
+.app-sidebar__brand-name {
+  font-size: 14px; font-weight: 600; color: var(--sce-fg);
+}
+.app-sidebar__brand-sub {
+  font-size: 11px; color: var(--sce-fg-subtle);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+
+.sidebar-section {
+  margin-bottom: var(--sce-sp-5);
+}
+.sidebar-section__label {
+  font-size: 11px;
+  color: var(--sce-fg-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  margin: 0 0 var(--sce-sp-2) 2px;
+}
+
+.sidebar-dataset-status {
+  font-size: 12px;
+  color: var(--sce-fg-muted);
+  margin-top: var(--sce-sp-2);
+}
+
+/* Navigation list */
+.sidebar-nav__category {
+  font-size: 11px;
+  color: var(--sce-fg-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  margin: var(--sce-sp-4) 0 var(--sce-sp-1) 2px;
+}
+.sidebar-nav__category:first-child { margin-top: 0; }
+
+.sidebar-nav__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sce-sp-3);
+  padding: 7px 10px;
+  margin: 1px 0;
+  border-radius: var(--sce-radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sce-fg);
+  background: transparent;
+  border: 1px solid transparent;
+  text-align: left;
+  width: 100%;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: background 80ms ease, color 80ms ease;
+}
+.sidebar-nav__item:hover {
+  background: var(--sce-surface-alt);
+  color: var(--sce-fg);
+}
+.sidebar-nav__item:focus-visible {
+  outline: 2px solid var(--sce-accent);
+  outline-offset: 1px;
+}
+.sidebar-nav__item.is-active {
+  background: var(--sce-accent-soft);
+  color: var(--sce-accent-strong);
+  border-color: rgba(29, 111, 106, 0.18);
+}
+.sidebar-nav__item.is-disabled {
+  color: var(--sce-fg-subtle);
+  cursor: not-allowed;
+  background: transparent;
+}
+.sidebar-nav__item.is-disabled:hover {
+  background: transparent;
+}
+.sidebar-nav__icon {
+  width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: currentColor;
+  opacity: 0.85;
+  flex: 0 0 16px;
+}
+.sidebar-nav__label {
+  flex: 1 1 auto;
+}
+.sidebar-nav__hint {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sce-fg-subtle);
+  background: var(--sce-surface-alt);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+/* ----- 4. Workspace shell ------------------------------------------------- */
+.app-workspace {
+  flex: 1 1 auto;
+  padding: var(--sce-sp-6) var(--sce-sp-7) var(--sce-sp-8);
+  min-width: 0;     /* allow children to shrink past intrinsic width */
+}
+.app-workspace__inner {
+  max-width: var(--sce-workspace-max);
+  margin: 0 auto;
+}
+
+.page-header {
+  margin-bottom: var(--sce-sp-6);
+}
+.page-header__eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--sce-fg-subtle);
+  font-weight: 600;
+  margin-bottom: var(--sce-sp-1);
+}
+.page-header__title {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--sce-fg);
+  margin: 0 0 var(--sce-sp-2) 0;
+}
+.page-header__lede {
+  font-size: 14px;
+  color: var(--sce-fg-muted);
+  max-width: 64ch;
+  margin: 0;
+}
+.page-header__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sce-sp-2) var(--sce-sp-4);
+  margin-top: var(--sce-sp-3);
+  font-size: 12px;
+  color: var(--sce-fg-muted);
+}
+.page-header__meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sce-sp-1);
+}
+.page-header__meta-item strong {
+  color: var(--sce-fg);
+  font-weight: 600;
+}
+
+/* Active-annotation persistent strip */
+.context-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sce-sp-3);
+  padding: 8px 14px;
+  border: 1px solid var(--sce-border);
+  background: var(--sce-surface);
+  border-radius: var(--sce-radius-sm);
+  font-size: 12px;
+  color: var(--sce-fg-muted);
+  margin-bottom: var(--sce-sp-4);
+}
+.context-strip strong { color: var(--sce-fg); font-weight: 600; }
+.context-strip--demo { background: #fdf6e7; border-color: #f0e1b1; color: #6b4d05; }
+.context-strip--demo strong { color: #4a3604; }
+.context-strip--active { background: var(--sce-info-soft); border-color: #c7d4ff; color: #1c378f; }
+.context-strip--active strong { color: #102166; }
+.context-strip__meta { color: var(--sce-fg-subtle); font-size: 11px; }
+
+/* ----- 5. Surfaces (cards, control panel, metric, plot) ------------------- */
+.app-card {
+  background: var(--sce-surface);
+  border: 1px solid var(--sce-border);
+  border-radius: var(--sce-radius);
+  box-shadow: var(--sce-shadow-sm);
+  overflow: hidden;
+  margin-bottom: var(--sce-sp-4);
+}
+.app-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sce-sp-3);
+  padding: var(--sce-sp-3) var(--sce-sp-5);
+  border-bottom: 1px solid var(--sce-divider);
+  background: linear-gradient(180deg, #fbfcfe 0%, var(--sce-surface) 100%);
+}
+.app-card__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sce-fg);
+  margin: 0;
+}
+.app-card__caption {
+  font-size: 12px;
+  color: var(--sce-fg-subtle);
+  margin: 0;
+}
+.app-card__body {
+  padding: var(--sce-sp-5);
+}
+/* Flush body: remove inner padding. Use when child elements (e.g. a
+ * `.app-card__toolbar` + `.table-scroll`) supply their own padding and bring
+ * their own dividers. Replaces ad hoc `body_class = "p-0"` overrides. */
+.app-card__body--flush {
+  padding: 0;
+}
+/* Toolbar strip inside an `app_card()` body. Used by `card_toolbar()` /
+ * `table_card(toolbar = ...)` to host a row of filter inputs above a table
+ * or other body content. Inherits the card surface and adds a hairline rule
+ * underneath so the body below reads as a separate region. */
+.app-card__toolbar {
+  padding: var(--sce-sp-3) var(--sce-sp-5);
+  border-bottom: 1px solid var(--sce-divider);
+  background: var(--sce-surface);
+}
+.app-card__toolbar > .control-panel__title {
+  margin-bottom: var(--sce-sp-2);
+}
+.app-card__toolbar .form-group { margin-bottom: 0; }
+.app-card__footer {
+  padding: var(--sce-sp-3) var(--sce-sp-5);
+  border-top: 1px solid var(--sce-divider);
+  background: var(--sce-surface-alt);
+  font-size: 12px;
+  color: var(--sce-fg-muted);
+}
+
+/* Plot variant: tighter body, optional fixed-height plot container */
+.plot-card .app-card__body { padding: var(--sce-sp-3) var(--sce-sp-5); }
+.plot-container {
+  background: var(--sce-surface);
+  border-radius: var(--sce-radius-sm);
+  padding: var(--sce-sp-1) 0;
+}
+.plot-caption {
+  font-size: 12px;
+  color: var(--sce-fg-subtle);
+  margin-top: var(--sce-sp-2);
+}
+
+/* Control panel: small left rail accent + tight grid */
+.control-panel {
+  background: var(--sce-surface);
+  border: 1px solid var(--sce-border);
+  border-radius: var(--sce-radius);
+  padding: var(--sce-sp-4) var(--sce-sp-5);
+  margin-bottom: var(--sce-sp-4);
+  position: relative;
+}
+.control-panel__title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--sce-fg-subtle);
+  margin: 0 0 var(--sce-sp-3);
+}
+.control-panel--with-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sce-sp-3);
+}
+.control-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sce-sp-2);
+  align-items: center;
+}
+
+/* Metric cards: compact KPI tiles */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--sce-sp-3);
+  margin-bottom: var(--sce-sp-4);
+}
+.metric-card {
+  background: var(--sce-surface);
+  border: 1px solid var(--sce-border);
+  border-radius: var(--sce-radius);
+  padding: var(--sce-sp-4) var(--sce-sp-5);
+  box-shadow: var(--sce-shadow-sm);
+}
+.metric-card__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--sce-fg-subtle);
+  font-weight: 600;
+  margin: 0 0 var(--sce-sp-1) 0;
+}
+.metric-card__value {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--sce-fg);
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+  line-height: 1.1;
+}
+.metric-card__hint {
+  font-size: 11px;
+  color: var(--sce-fg-subtle);
+  margin-top: var(--sce-sp-1);
+}
+
+/* Section titles inside a card body. By default they carry a top margin so
+ * they read as a clear break when used mid-card; the first-child rule resets
+ * that so a section-title at the top of a card body stays flush. */
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sce-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: var(--sce-sp-3) 0 var(--sce-sp-3);
+  display: flex;
+  align-items: center;
+  gap: var(--sce-sp-2);
+}
+.app-card__body > .section-title:first-child,
+.section-title--flush { margin-top: 0; }
+.section-title__rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--sce-divider);
+}
+.section-title__subtitle {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--sce-fg-subtle);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Definition list inside an app-card body */
+.app-deflist {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: var(--sce-sp-4);
+  row-gap: var(--sce-sp-2);
+  font-size: 13px;
+}
+.app-deflist__term {
+  color: var(--sce-fg-subtle);
+  font-size: 12px;
+}
+.app-deflist__value {
+  color: var(--sce-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----- 6. States: empty / banners / pills --------------------------------- */
+.empty-state {
+  text-align: center;
+  padding: var(--sce-sp-8) var(--sce-sp-6);
+  background: var(--sce-surface);
+  border: 1px dashed var(--sce-border-strong);
+  border-radius: var(--sce-radius-lg);
+  color: var(--sce-fg-muted);
+  max-width: 640px;
+  margin: var(--sce-sp-7) auto;
+}
+.empty-state__icon {
+  width: 44px; height: 44px;
+  margin: 0 auto var(--sce-sp-3);
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  background: var(--sce-accent-soft);
+  color: var(--sce-accent);
+}
+.empty-state__title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--sce-fg);
+  margin: 0 0 var(--sce-sp-2);
+}
+.empty-state__lede {
+  font-size: 14px;
+  color: var(--sce-fg-muted);
+  margin: 0 auto;
+  max-width: 48ch;
+}
+.empty-state__hint {
+  font-size: 12px;
+  color: var(--sce-fg-subtle);
+  margin-top: var(--sce-sp-3);
+}
+.empty-state__actions {
+  margin-top: var(--sce-sp-4);
+  display: flex; justify-content: center; gap: var(--sce-sp-2);
+}
+
+/* Inline info / warning / success / error banners */
+.info-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sce-sp-3);
+  padding: 10px 14px;
+  border-radius: var(--sce-radius-sm);
+  border: 1px solid;
+  font-size: 13px;
+  line-height: 1.45;
+  margin-bottom: var(--sce-sp-3);
+}
+.info-banner__icon { flex: 0 0 16px; margin-top: 2px; }
+.info-banner__body { flex: 1 1 auto; }
+.info-banner__title {
+  font-weight: 600;
+  display: block;
+  margin-bottom: 2px;
+}
+.info-banner--info    { color: var(--sce-info);    background: var(--sce-info-soft);    border-color: rgba(30, 78, 216, 0.18); }
+.info-banner--success { color: var(--sce-success); background: var(--sce-success-soft); border-color: rgba(47, 125, 50, 0.18); }
+.info-banner--warning { color: var(--sce-warning); background: var(--sce-warning-soft); border-color: rgba(178, 84, 0, 0.20); }
+.info-banner--danger  { color: var(--sce-danger);  background: var(--sce-danger-soft);  border-color: rgba(179, 38, 30, 0.20); }
+.info-banner--neutral { color: var(--sce-fg-muted); background: var(--sce-surface-alt); border-color: var(--sce-border); }
+
+/* Status pills */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sce-sp-1);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+.status-pill--neutral { color: var(--sce-fg-muted); background: var(--sce-surface-alt); border-color: var(--sce-border); }
+.status-pill--info    { color: var(--sce-info);    background: var(--sce-info-soft);    border-color: rgba(30, 78, 216, 0.18); }
+.status-pill--success { color: var(--sce-success); background: var(--sce-success-soft); border-color: rgba(47, 125, 50, 0.18); }
+.status-pill--warning { color: var(--sce-warning); background: var(--sce-warning-soft); border-color: rgba(178, 84, 0, 0.22); }
+.status-pill--danger  { color: var(--sce-danger);  background: var(--sce-danger-soft);  border-color: rgba(179, 38, 30, 0.20); }
+.status-pill--accent  { color: var(--sce-accent);  background: var(--sce-accent-soft);  border-color: rgba(29, 111, 106, 0.20); }
+
+/* Workspace messages stream */
+.workspace-messages { margin-bottom: var(--sce-sp-3); }
+.workspace-message {
+  display: flex; align-items: flex-start; gap: var(--sce-sp-2);
+  border-left: 3px solid var(--sce-border-strong);
+  background: var(--sce-surface);
+  border-top: 1px solid var(--sce-divider);
+  border-right: 1px solid var(--sce-divider);
+  border-bottom: 1px solid var(--sce-divider);
+  padding: 6px 12px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  border-radius: 0 var(--sce-radius-sm) var(--sce-radius-sm) 0;
+}
+.workspace-message--info    { border-left-color: var(--sce-info); }
+.workspace-message--success { border-left-color: var(--sce-success); }
+.workspace-message--warning { border-left-color: var(--sce-warning); }
+.workspace-message--error   { border-left-color: var(--sce-danger); }
+
+/* ----- 7. Inputs + typography touch-ups ----------------------------------- */
+.form-control, .form-select,
+.shiny-input-container input[type="text"],
+.shiny-input-container input[type="number"],
+.shiny-input-container select {
+  border-color: var(--sce-border) !important;
+  box-shadow: none !important;
+  border-radius: var(--sce-radius-sm) !important;
+  font-size: 13px !important;
+}
+.form-control:focus, .form-select:focus,
+.shiny-input-container input:focus,
+.shiny-input-container select:focus {
+  border-color: var(--sce-accent) !important;
+  box-shadow: 0 0 0 3px rgba(29, 111, 106, 0.15) !important;
+}
+.shiny-input-container > label,
+.control-label {
+  font-size: 11px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600 !important;
+  color: var(--sce-fg-subtle) !important;
+  margin-bottom: 4px !important;
+}
+
+/* Buttons: a hair tighter and more deliberate */
+.btn { border-radius: var(--sce-radius-sm); font-size: 13px; font-weight: 500; }
+.btn-sm { font-size: 12px; }
+.btn-primary {
+  background: var(--sce-accent) !important;
+  border-color: var(--sce-accent) !important;
+}
+.btn-primary:hover, .btn-primary:focus {
+  background: var(--sce-accent-strong) !important;
+  border-color: var(--sce-accent-strong) !important;
+}
+.btn-default, .btn-light, .btn-secondary {
+  background: var(--sce-surface) !important;
+  border-color: var(--sce-border-strong) !important;
+  color: var(--sce-fg) !important;
+}
+.btn-default:hover, .btn-light:hover, .btn-secondary:hover {
+  background: var(--sce-surface-alt) !important;
+}
+
+/* Tables */
+table.table { font-size: 13px; }
+table.table thead th {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--sce-fg-subtle); border-bottom: 2px solid var(--sce-divider);
+}
+table.table tbody td { vertical-align: middle; }
+
+/* Verbatim output: tidy mono blocks */
+.shiny-text-output, pre {
+  font-family: var(--sce-font-mono);
+  font-size: 12.5px;
+  background: var(--sce-surface-alt);
+  border: 1px solid var(--sce-border);
+  border-radius: var(--sce-radius-sm);
+  padding: var(--sce-sp-3);
+  color: var(--sce-fg);
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 { color: var(--sce-fg); letter-spacing: -0.01em; }
+hr { border-color: var(--sce-divider); margin: var(--sce-sp-4) 0; }
+
+/* ----- 8. Action rows, summary bars, legends, status, etc. --------------- */
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sce-sp-3);
+  margin: var(--sce-sp-2) 0 var(--sce-sp-4);
+}
+.action-row--right { justify-content: flex-end; }
+.action-row__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sce-sp-2);
+  align-items: center;
+}
+.action-row__helper {
+  font-size: 12px;
+  color: var(--sce-fg-subtle);
+  line-height: 1.4;
+  margin-left: auto;
+  max-width: 60ch;
+}
+
+/* Summary bar (content-side meta strip). Distinct from `.page-header__meta`
+ * so module bodies don't depend on page-header internals. */
+.summary-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sce-sp-2) var(--sce-sp-5);
+  padding: 10px 14px;
+  background: var(--sce-surface);
+  border: 1px solid var(--sce-border);
+  border-radius: var(--sce-radius-sm);
+  margin-bottom: var(--sce-sp-4);
+  font-size: 12px;
+  color: var(--sce-fg-muted);
+}
+.summary-bar__item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sce-sp-1);
+}
+.summary-bar__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--sce-fg-subtle);
+  font-weight: 600;
+}
+.summary-bar__value {
+  font-size: 13px;
+  color: var(--sce-fg);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Callout legend (small swatch + label strip) */
+.callout-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sce-sp-2) var(--sce-sp-4);
+  font-size: 12px;
+  color: var(--sce-fg-muted);
+  margin: 0 0 var(--sce-sp-3) 0;
+}
+.callout-legend__item {
+  display: inline-flex; align-items: center; gap: var(--sce-sp-2);
+}
+.callout-legend__swatch {
+  display: inline-block;
+  width: 12px; height: 12px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  background: currentColor;
+  opacity: 0.85;
+}
+.callout-legend__swatch--neutral { color: var(--sce-fg-subtle); }
+.callout-legend__swatch--info    { color: var(--sce-info); }
+.callout-legend__swatch--success { color: var(--sce-success); }
+.callout-legend__swatch--warning { color: var(--sce-warning); }
+.callout-legend__swatch--danger  { color: var(--sce-danger); }
+.callout-legend__swatch--accent  { color: var(--sce-accent); }
+.callout-legend__note { color: var(--sce-fg-subtle); font-size: 12px; }
+
+/* Coming-soon / placeholder card (modernizes mod_placeholders.R) */
+.coming-soon {
+  background: var(--sce-surface);
+  border: 1px solid var(--sce-border);
+  border-radius: var(--sce-radius-lg);
+  box-shadow: var(--sce-shadow-sm);
+  padding: var(--sce-sp-6) var(--sce-sp-7);
+  max-width: 720px;
+  margin: var(--sce-sp-5) auto;
+}
+.coming-soon__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sce-sp-3);
+  margin-bottom: var(--sce-sp-3);
+  border-bottom: 1px solid var(--sce-divider);
+  padding-bottom: var(--sce-sp-3);
+}
+.coming-soon__title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--sce-fg);
+  margin: 0;
+}
+.coming-soon__description {
+  font-size: 14px;
+  color: var(--sce-fg-muted);
+  margin: 0 0 var(--sce-sp-3);
+  max-width: 60ch;
+}
+.coming-soon__hint {
+  font-size: 12px;
+  color: var(--sce-fg-subtle);
+  margin: 0;
+}
+
+/* Compute-status banner (DE, pathway, imputation, regulons, trajectory) */
+.status-banner {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sce-sp-2);
+  padding: 8px 14px;
+  border: 1px solid;
+  border-radius: var(--sce-radius-sm);
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: var(--sce-sp-3);
+}
+.status-banner__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  margin-right: var(--sce-sp-1);
+  flex: 0 0 auto;
+}
+.status-banner__text {
+  flex: 1 1 auto;
+  color: inherit;
+}
+.status-banner--idle    { color: var(--sce-fg-muted); background: var(--sce-surface-alt); border-color: var(--sce-border); }
+.status-banner--running { color: var(--sce-info);    background: var(--sce-info-soft);    border-color: rgba(30, 78, 216, 0.20); }
+.status-banner--success { color: var(--sce-success); background: var(--sce-success-soft); border-color: rgba(47, 125, 50, 0.20); }
+.status-banner--warning { color: var(--sce-warning); background: var(--sce-warning-soft); border-color: rgba(178, 84, 0, 0.22); }
+.status-banner--danger  { color: var(--sce-danger);  background: var(--sce-danger-soft);  border-color: rgba(179, 38, 30, 0.22); }
+.status-banner--info    { color: var(--sce-info);    background: var(--sce-info-soft);    border-color: rgba(30, 78, 216, 0.18); }
+
+/* Table card / scrollable output region */
+.table-card .app-card__body { padding: 0; }
+.table-scroll {
+  max-height: none;       /* default; bounded variant below sets a max-height */
+  overflow: auto;
+  padding: var(--sce-sp-2) var(--sce-sp-4);
+}
+.table-scroll table.table { margin-bottom: 0; }
+/* Standard bounded scroll height for table cards. Replaces the recurring
+ * `style="max-height: 420px;"` pattern in DE / pathway modules. */
+.table-scroll--bounded { max-height: 420px; }
+
+/* Small caption / helper text -- universal microtypography for hint lines */
+.helper-text {
+  font-size: 12px;
+  color: var(--sce-fg-subtle);
+  line-height: 1.5;
+}
+.helper-text--block { display: block; margin-top: var(--sce-sp-1); }
+.microcaption {
+  font-size: 12px;
+  color: var(--sce-fg-subtle);
+  margin-top: var(--sce-sp-2);
+  line-height: 1.4;
+}
+.content-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  color: var(--sce-fg-subtle);
+}
+
+/* Per-cluster annotation table swatch helpers (used by mod_annotation.R).
+ * Replaces the inline `style="background:#fff3cd"` / "#d1e7dd" rows. */
+.cluster-table { width: 100%; border-collapse: separate; border-spacing: 0;
+                 font-size: 13px; }
+.cluster-table th {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--sce-fg-subtle);
+  border-bottom: 2px solid var(--sce-divider);
+  padding: 6px 8px;
+  text-align: left;
+}
+.cluster-table td {
+  padding: 6px 8px; border-bottom: 1px solid var(--sce-divider);
+  vertical-align: middle;
+}
+.cluster-table tr.is-suggested  { background: var(--sce-warning-soft); }
+.cluster-table tr.is-confirmed  { background: var(--sce-success-soft); }
+.cluster-table tr:hover         { filter: brightness(0.98); }
+
+/* Mono inline list (gene symbols etc.) */
+.gene-list {
+  font-family: var(--sce-font-mono);
+  font-size: 12.5px;
+  color: var(--sce-fg);
+  line-height: 1.5;
+  word-break: break-word;
+}
+.info-banner .gene-list,
+.app-card__body > p + .gene-list { margin-top: var(--sce-sp-1); }
+
+/* ----- Micro layout helpers ---------------------------------------------- */
+
+/* `.beside-input` pads its content down so it baselines with the input row
+ * of a labeled `shiny::selectInput()` (etc.) in an adjacent fluidRow column.
+ * Replaces the recurring `style="padding-top: 22-25px"` pattern.            */
+.beside-input { padding-top: 22px; }
+
+/* `.req-list`: bulleted list of required-but-missing inputs used by the
+ * workspace's "needs inputs" state. */
+.req-list {
+  margin: var(--sce-sp-2) 0 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--sce-fg-muted);
+}
+.req-list li { margin: 2px 0; }
+
+/* `.selection-meta`: inline label + numeric value + helper-text row used by
+ * the explorer's selection summary. Provides consistent baseline alignment
+ * and gap so callers don't have to nudge with inline margins. */
+.selection-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sce-sp-2);
+  flex-wrap: wrap;
+}
+
+/* `.set-summary`: compact summary line beneath the annotation set manager
+ * (e.g. "12 of 16 cluster labels confirmed."). Sits below the controls
+ * without competing visually. */
+.set-summary {
+  margin-top: var(--sce-sp-3);
+  color: var(--sce-fg-muted);
+  font-size: 13px;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .app-shell { flex-direction: column; }
+  .app-sidebar {
+    width: 100%; flex: 0 0 auto; height: auto; position: static;
+    border-right: 0; border-bottom: 1px solid var(--sce-border);
+  }
+  .app-workspace { padding: var(--sce-sp-5) var(--sce-sp-5) var(--sce-sp-7); }
+}
