@@ -82,6 +82,38 @@ require_optional <- function(pkgs, feature,
   ), call. = FALSE)
 }
 
+#' Attach a loaded package's namespace to the global search path.
+#'
+#' `requireNamespace()` loads a package's namespace but does NOT attach
+#' it, which is normally what we want -- it keeps the search path
+#' uncluttered. A few external packages (Azimuth, in particular) reach
+#' for S4 setters like `SeuratObject::"Key<-"` through the search path
+#' instead of via their NAMESPACE imports, so they fail with
+#' `could not find function "Key<-"` when their dependency is
+#' loaded-but-not-attached. This helper closes that gap on a
+#' per-engine basis.
+#'
+#' Idempotent: returns invisibly if the package is already attached.
+#' Raises a clear error if the package isn't installed or the attach
+#' itself fails. Use sparingly -- attaching modifies global state for
+#' the rest of the session.
+#'
+#' @param pkg character(1) package name. Must already be installed
+#'   (call `require_optional()` first for a friendlier missing-pkg
+#'   message).
+ensure_attached <- function(pkg) {
+  stopifnot(is.character(pkg), length(pkg) == 1L, nzchar(pkg))
+  if (paste0("package:", pkg) %in% search()) return(invisible(TRUE))
+  tryCatch({
+    attachNamespace(pkg)
+    invisible(TRUE)
+  }, error = function(e) {
+    stop(sprintf(
+      "ensure_attached('%s'): cannot attach package. %s",
+      pkg, conditionMessage(e)), call. = FALSE)
+  })
+}
+
 .require_optional_github_cmd <- function(missing, repo = NULL) {
   # Per-package owner/repo lookup. For each missing package we prefer the
   # caller-supplied `repo[[pkg]]` mapping; otherwise we fall back to a

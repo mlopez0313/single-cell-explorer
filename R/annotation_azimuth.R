@@ -60,6 +60,17 @@
     source  = "GitHub",
     repo    = c(Azimuth = "satijalab/azimuth"))
 
+  # Azimuth's internals reach for S4 setters from `SeuratObject` (most
+  # notably `Key<-`) via the calling-environment search path rather
+  # than through its NAMESPACE imports. The `requireNamespace()` calls
+  # above load both packages but do NOT attach them, so the call into
+  # `RunAzimuth` fails with `could not find function "Key<-"`. Attach
+  # both packages here (idempotent if already on the search path) --
+  # this is the same effect as `library(SeuratObject); library(Seurat)`
+  # but scoped to engines that actually need it.
+  ensure_attached("SeuratObject")
+  ensure_attached("Seurat")
+
   reference         <- params$reference         %||% "pbmcref"
   annotation_level  <- params$annotation_level  %||% "celltype.l2"
   min_mapping_score <- params$min_mapping_score %||% 0.0

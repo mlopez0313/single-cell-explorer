@@ -28,6 +28,30 @@ test_that("azimuth is listed in list_annotation_engines()", {
   expect_true("azimuth" %in% ids)
 })
 
+# ---- ensure_attached helper ------------------------------------------------
+# Azimuth's `Key<-` resolution needs SeuratObject *attached*, not just
+# loaded -- the helper that closes that gap.
+
+test_that("ensure_attached() is idempotent when the package is already attached", {
+  # `methods` is loaded and attached by default in every R session.
+  expect_true("package:methods" %in% search())
+  expect_true(ensure_attached("methods"))
+  # Second call must not error and must not duplicate the search entry.
+  expect_true(ensure_attached("methods"))
+  expect_equal(sum(search() == "package:methods"), 1L)
+})
+
+test_that("ensure_attached() raises a clear error for a nonexistent package", {
+  expect_error(ensure_attached("definitelynotapackage_xyz"),
+               regexp = "cannot attach package")
+})
+
+test_that("ensure_attached() rejects malformed input", {
+  expect_error(ensure_attached(character()))
+  expect_error(ensure_attached(c("a", "b")))
+  expect_error(ensure_attached(""))
+})
+
 # ---- Missing-dep gating ----------------------------------------------------
 
 test_that("run_annotation_engine('azimuth') errors cleanly without Azimuth", {
