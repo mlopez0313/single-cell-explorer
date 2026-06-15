@@ -1,3 +1,52 @@
+test_that(".ensure_bioc_cache_dirs creates the configured cache directory", {
+  skip_if_not_installed("withr")
+  td <- tempfile("sce-user-cache-")
+  on.exit(unlink(td, recursive = TRUE), add = TRUE)
+
+  eh_path <- file.path(td, "EH-cache")
+  ah_path <- file.path(td, "AH-cache")
+  withr::with_envvar(c(R_USER_CACHE_DIR     = td,
+                       EXPERIMENT_HUB_CACHE = eh_path,
+                       ANNOTATION_HUB_CACHE = ah_path), {
+    .ensure_bioc_cache_dirs()
+  })
+  # The helper must have created at least one of the candidate paths:
+  # the env-var-supplied one (ExperimentHub installed) or the
+  # R_user_dir fallback (not installed). Both are valid -- what matters
+  # is that *something* now exists so a follow-up readline() prompt
+  # would not fire.
+  rud_eh <- withr::with_envvar(c(R_USER_CACHE_DIR = td), {
+    tools::R_user_dir("ExperimentHub", which = "cache")
+  })
+  expect_true(dir.exists(eh_path) || dir.exists(rud_eh))
+})
+
+test_that(".ensure_bioc_cache_dirs is idempotent on a populated cache", {
+  skip_if_not_installed("withr")
+  td <- tempfile("sce-user-cache-")
+  on.exit(unlink(td, recursive = TRUE), add = TRUE)
+
+  withr::with_envvar(c(R_USER_CACHE_DIR = td), {
+    .ensure_bioc_cache_dirs()
+    # A second call must not touch the FS in a way that surfaces as a
+    # warning or error.
+    expect_silent(.ensure_bioc_cache_dirs())
+  })
+})
+
+test_that(".ensure_bioc_cache_dirs swallows mkdir failures (best-effort)", {
+  skip_if_not_installed("withr")
+  # Point ExperimentHub at a path nested under a file (not a dir), so
+  # `dir.create()` cannot succeed. The helper must still return cleanly.
+  blocker <- tempfile("sce-blocker-")
+  writeLines("not a dir", blocker)
+  on.exit(unlink(blocker), add = TRUE)
+  bad_path <- file.path(blocker, "EH-cache")
+  withr::with_envvar(c(EXPERIMENT_HUB_CACHE = bad_path), {
+    expect_silent(.ensure_bioc_cache_dirs())
+  })
+})
+
 test_that("demo_dataset_path honours SCE_DEMO_DATASET when set", {
   tmp <- tempfile(fileext = ".rds")
   withr::with_envvar(c(SCE_DEMO_DATASET = tmp), {

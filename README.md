@@ -96,11 +96,24 @@ first click, the app will (in order):
    present. A confirmation modal lists the packages and an estimated
    install duration; on **Install + build** the app runs CRAN + Bioc
    installs and the dataset build in a single `withProgress()` overlay,
-   then loads the result. The **Use mock dataset instead** button is
-   the no-install escape hatch and loads `mock_dataset()` immediately,
-   or
+   then loads the result. The whole chain is non-interactive (CRAN
+   mirror pinned to `cloud.r-project.org`, `BiocManager::install(ask =
+   FALSE, update = FALSE)`, and the ExperimentHub / AnnotationHub /
+   BiocFileCache cache directories are pre-created so no "does this
+   directory exist?" prompt can block the Shiny session). The **Use
+   mock dataset instead** button is the no-install escape hatch and
+   loads `mock_dataset()` immediately, or
 4. **fall back** to `mock_dataset()` if any step fails -- the UI always
    works.
+
+> **Note on session restarts after install.** R cannot safely use a
+> package whose on-disk files were rewritten in the *same* session that
+> was already using them; the symptom is
+> `lazy-load database '.../Seurat.rdb' is corrupt`. If you ever see
+> that, just quit (`Ctrl+C` in the terminal) and relaunch the app --
+> the first run in a fresh session always completes cleanly. The app
+> detects this specific failure mode and surfaces a restart hint
+> instead of a generic error.
 
 ## Demo dataset
 

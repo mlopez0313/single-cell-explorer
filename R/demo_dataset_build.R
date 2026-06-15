@@ -125,6 +125,52 @@ build_pbmc8k_demo <- function(out_path        = demo_dataset_path(),
   }
 }
 
+# ---- Bioconductor cache bootstrap ----------------------------------------
+#
+# Pre-create the cache directories used by ExperimentHub /
+# AnnotationHub / BiocFileCache so they don't block on
+#
+#   "<path> does not exist, create directory? (yes/no):"
+#
+# during the first TENxPBMCData() call from a Shiny session. Best
+# effort: if any individual path can't be created (read-only FS, weird
+# permissions, etc.) we swallow the error -- the downstream Hub call
+# will then surface a clearer message than we could fabricate here.
+#
+# `getExperimentHubOption("CACHE")` is preferred over
+# `tools::R_user_dir(...)` because it respects user-set
+# `EXPERIMENT_HUB_CACHE` / `ANNOTATION_HUB_CACHE` env vars.
+.ensure_bioc_cache_dirs <- function() {
+  mkdir <- function(p) {
+    if (length(p) != 1L || is.na(p) || !nzchar(p)) return(invisible(NULL))
+    if (!dir.exists(p)) {
+      tryCatch(dir.create(p, recursive = TRUE, showWarnings = FALSE),
+               error = function(e) NULL)
+    }
+    invisible(NULL)
+  }
+
+  eh_cache <- tryCatch(
+    if (requireNamespace("ExperimentHub", quietly = TRUE))
+      ExperimentHub::getExperimentHubOption("CACHE")
+    else tools::R_user_dir("ExperimentHub", which = "cache"),
+    error = function(e) tools::R_user_dir("ExperimentHub", which = "cache"))
+  mkdir(eh_cache)
+
+  ah_cache <- tryCatch(
+    if (requireNamespace("AnnotationHub", quietly = TRUE))
+      AnnotationHub::getAnnotationHubOption("CACHE")
+    else tools::R_user_dir("AnnotationHub", which = "cache"),
+    error = function(e) tools::R_user_dir("AnnotationHub", which = "cache"))
+  mkdir(ah_cache)
+
+  bfc_cache <- tryCatch(tools::R_user_dir("BiocFileCache", which = "cache"),
+                        error = function(e) NULL)
+  mkdir(bfc_cache)
+
+  invisible(NULL)
+}
+
 # ---- Source loaders -------------------------------------------------------
 
 .build_load_tenx_pbmc_data <- function(progress = function(...) NULL) {
@@ -134,6 +180,12 @@ build_pbmc8k_demo <- function(out_path        = demo_dataset_path(),
                    source  = "Bioconductor")
   require_optional(c("Seurat", "SeuratObject"),
                    feature = "PBMC 8k demo build (Seurat preprocessing)")
+  # ExperimentHub / BiocFileCache will prompt the console
+  # ("...does not exist, create directory? (yes/no):") the very first
+  # time their cache dirs are touched. Inside Shiny that readline goes
+  # to the controlling terminal, not the browser, so the app appears
+  # hung. Pre-create the dirs to short-circuit the prompt entirely.
+  .ensure_bioc_cache_dirs()
   progress(0.05, "Fetching PBMC 8k counts from ExperimentHub (cached after first run)")
   sce <- TENxPBMCData::TENxPBMCData("pbmc8k")
   # TENxPBMCData stores counts as a DelayedArray. Materialise once into

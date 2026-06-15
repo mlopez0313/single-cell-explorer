@@ -205,6 +205,33 @@ sce_setup <- function(tier    = c("demo", "core", "full"),
   invisible(list(cran = missing_cran, bioc = missing_bioc))
 }
 
+#' Detect a stale-session lazy-load failure from an error message.
+#'
+#' R's lazy-load DB (`R/<pkg>.rdb`) is mmap'd into the running session
+#' on first use. If the file on disk is replaced (e.g. by an in-process
+#' `install.packages()` or a partially-completed source build), the
+#' next access surfaces as one of a small set of messages whose only
+#' reliable fix is a fresh R session. We match them here so callers
+#' can render a "please restart" hint instead of a generic warning.
+#'
+#' Intentionally a single regex with the patterns we've observed in the
+#' wild on macOS / Linux:
+#'   * `lazy-load database '...' is corrupt`
+#'   * `bad restore file magic number`
+#'   * `unable to load shared object` (when a `.so` was rewritten mid-session)
+#'   * `internal error -3 in R_decompress1`
+#'
+#' Returns a single logical.
+.is_lazy_load_corruption <- function(msg) {
+  if (length(msg) == 0L || !nzchar(msg)) return(FALSE)
+  grepl(paste0(
+    "lazy-load database.*is corrupt",   "|",
+    "bad restore file magic number",    "|",
+    "internal error -3 in R_decompress",  "|",
+    "unable to load shared object.*\\.so"),
+    msg, ignore.case = TRUE)
+}
+
 #' Install just the packages the PBMC 8k demo build needs.
 #'
 #' Used by the sidebar's "Load demo dataset" button when the user
@@ -237,10 +264,36 @@ sce_install_for_demo <- function(progress = NULL) {
     return(invisible(TRUE))
   }
 
-  # In a Shiny session launched via Rscript, `interactive()` is FALSE
-  # and `install.packages()` may prompt for a CRAN mirror. Pin one for
-  # the duration of this call so the install is non-interactive.
-  old_opts <- options(repos = c(CRAN = "https://cloud.r-project.org"))
+  # Refuse in-place install when any target package is already loaded
+  # in this R session. Reinstalling a loaded package rewrites its
+  # `Meta/` and `R/*.rdb` files on disk while R still has stale file
+  # handles cached, which manifests as
+  #   "lazy-load database '.../Seurat.rdb' is corrupt"
+  # on the very next call into that package. The only safe fix is a
+  # fresh R session.
+  pre_loaded <- intersect(c(missing_cran, missing_bioc), loadedNamespaces())
+  if (length(pre_loaded) > 0L) {
+    stop(sprintf(paste0(
+      "Cannot install package(s) (%s) in this R session because %s ",
+      "already loaded. Quit and relaunch the app (Ctrl+C in the ",
+      "terminal, then `shiny::runApp(\".\")` again) before clicking ",
+      "\"Install + build\". The first install in a fresh session ",
+      "completes safely."),
+      paste(pre_loaded, collapse = ", "),
+      if (length(pre_loaded) == 1L) "it is" else "they are"),
+      call. = FALSE)
+  }
+
+  # In a Shiny session `interactive()` is TRUE, so `install.packages()`
+  # may prompt at the controlling terminal for:
+  #   * a CRAN mirror,
+  #   * "Do you want to install from sources the package which needs
+  #     compilation? (Yes/no/cancel)" (macOS / Windows).
+  # Pin both options for the duration of this call so the install is
+  # truly non-interactive from the user's perspective.
+  old_opts <- options(
+    repos = c(CRAN = "https://cloud.r-project.org"),
+    install.packages.check.source = "no")
   on.exit(options(old_opts), add = TRUE)
 
   # Two-phase progress band: CRAN [0, 0.4), Bioc [0.4, 0.95], verify [0.95, 1].
@@ -265,8 +318,16 @@ sce_install_for_demo <- function(progress = NULL) {
   }
 
   tick(0.95, "Verifying installed packages")
-  still_missing <- c(missing_cran, missing_bioc)[
-    !vapply(c(missing_cran, missing_bioc), has_optional, logical(1))]
+  # Two-step verify so we surface meaningful errors:
+  #
+  #   1. `requireNamespace()` -> package is installed at all.
+  #   2. `loadNamespace()`    -> the lazy-load DB on disk is intact
+  #                              (catches partial / interrupted Bioc
+  #                              source builds that leave a corrupt
+  #                              `Seurat.rdb` etc.).
+  installed_ok <- vapply(c(missing_cran, missing_bioc),
+                         has_optional, logical(1))
+  still_missing <- c(missing_cran, missing_bioc)[!installed_ok]
   if (length(still_missing) > 0L) {
     stop(sprintf(paste0(
       "Demo-build dependency install failed for package(s): %s. ",
@@ -274,6 +335,25 @@ sce_install_for_demo <- function(progress = NULL) {
       "see the underlying CRAN/Bioconductor error (typical causes: ",
       "missing system libraries, no network, source-compile failure)."),
       paste(still_missing, collapse = ", ")),
+      call. = FALSE)
+  }
+
+  loadable <- function(pkg) {
+    tryCatch({ suppressMessages(suppressWarnings(loadNamespace(pkg))); TRUE },
+             error = function(e) FALSE)
+  }
+  corrupt <- c(missing_cran, missing_bioc)[
+    !vapply(c(missing_cran, missing_bioc), loadable, logical(1))]
+  if (length(corrupt) > 0L) {
+    stop(sprintf(paste0(
+      "Installed but cannot load: %s. The package files on disk are ",
+      "present but unreadable from this R session (often a corrupt ",
+      "`R/<pkg>.rdb` from a partially completed source build). ",
+      "Quit the app, then either reinstall via ",
+      "`Rscript scripts/setup_dev.R --demo` from a fresh terminal or ",
+      "reinstall the affected package directly. The dataset will ",
+      "auto-build on the next launch."),
+      paste(corrupt, collapse = ", ")),
       call. = FALSE)
   }
 

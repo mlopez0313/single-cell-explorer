@@ -164,9 +164,21 @@ server <- function(input, output, session) {
             })
           }),
         error = function(e) {
-          push_message(state, sprintf(
-            "Demo build failed: %s. Falling back to mock_dataset().",
-            conditionMessage(e)), "warning")
+          msg <- conditionMessage(e)
+          if (.is_lazy_load_corruption(msg)) {
+            push_message(state, paste0(
+              "Demo build aborted: a required package's on-disk files ",
+              "were modified after this Shiny session started, so R's ",
+              "in-memory lazy-load cache no longer matches the disk. ",
+              "Quit the app (Ctrl+C in the terminal), restart it with ",
+              "`shiny::runApp(\".\")`, and click \"Load demo dataset\" ",
+              "again. Loading mock_dataset() for now."),
+              "warning")
+          } else {
+            push_message(state, sprintf(
+              "Demo build failed: %s. Falling back to mock_dataset().",
+              msg), "warning")
+          }
           NULL
         })
       if (!is.null(ds)) {
@@ -236,38 +248,73 @@ server <- function(input, output, session) {
   })
 
   # ---- Modal handlers: in-app install + build chain ------------------------
-  # `demo_install_confirm`: run sce_install_for_demo() inside a
-  # withProgress(), then ensure_demo_dataset() inside the same overlay.
-  # Failure at either step falls back to mock_dataset() with a precise
-  # error message.
+  # `demo_install_confirm`: run install + build as two distinct phases
+  # so we can give phase-specific failure messages. In particular, a
+  # build that fails *immediately after* a successful install almost
+  # always means R's in-memory lazy-load tables are stale with respect
+  # to the just-rewritten package files on disk
+  # ("lazy-load database '.../Seurat.rdb' is corrupt"). That symptom
+  # has only one reliable fix: restart R. Detect it and surface a
+  # restart hint instead of a generic failure message.
   observeEvent(input$demo_install_confirm, {
     shiny::removeModal()
+
+    install_ok <- tryCatch({
+      shiny::withProgress(
+        message = "Installing dependencies for PBMC 8k demo",
+        detail  = "one-time install (~5-15 min)",
+        value   = 0,
+        sce_install_for_demo(progress = function(fraction, detail = NULL) {
+          shiny::setProgress(value = fraction, detail = detail)
+        }))
+      TRUE
+    }, error = function(e) {
+      push_message(state, sprintf(paste0(
+        "Demo package install failed: %s. Falling back to ",
+        "mock_dataset(). For a richer error log, re-run from a ",
+        "terminal: `Rscript scripts/setup_dev.R --demo`."),
+        conditionMessage(e)), "warning")
+      FALSE
+    })
+
+    if (!install_ok) {
+      set_active_dataset(state, mock_dataset())
+      return()
+    }
+
     ds <- tryCatch(
       shiny::withProgress(
-        message = "Preparing PBMC 8k demo dataset",
-        detail  = "installing dependencies + building (one-time cost)",
+        message = "Building PBMC 8k demo dataset",
+        detail  = "first-run only (~30-90s)",
         value   = 0,
-        {
-          # Phase 1: install missing demo packages, mapped onto [0, 0.55].
-          sce_install_for_demo(progress = function(fraction, detail = NULL) {
-            shiny::setProgress(value = fraction * 0.55, detail = detail)
-          })
-          # Phase 2: build + load the artifact, mapped onto (0.55, 1.0].
-          ensure_demo_dataset(
-            force_build = TRUE,
-            progress    = function(fraction, detail = NULL) {
-              shiny::setProgress(value = 0.55 + fraction * 0.45,
-                                 detail = detail)
-            })
-        }),
+        ensure_demo_dataset(
+          force_build = TRUE,
+          progress    = function(fraction, detail = NULL) {
+            shiny::setProgress(value = fraction, detail = detail)
+          })),
       error = function(e) {
-        push_message(state, sprintf(
-          paste0("In-app demo setup failed: %s. Falling back to ",
-                 "mock_dataset(). For a richer error log, re-run from a ",
-                 "terminal: `Rscript scripts/setup_dev.R --demo`."),
-          conditionMessage(e)), "warning")
+        msg <- conditionMessage(e)
+        if (.is_lazy_load_corruption(msg)) {
+          push_message(state, paste0(
+            "Demo packages installed successfully, but this Shiny ",
+            "session is still using the old (now-stale) in-memory ",
+            "image of those packages. R cannot safely use a package ",
+            "whose on-disk files were rewritten mid-session. ",
+            "Quit the app (Ctrl+C in the terminal), restart it with ",
+            "`shiny::runApp(\".\")`, and click \"Load demo dataset\" ",
+            "again -- the build will complete in a fresh session. ",
+            "Loading mock_dataset() for now."),
+            "warning")
+        } else {
+          push_message(state, sprintf(paste0(
+            "Demo build failed after install: %s. Falling back to ",
+            "mock_dataset(). Re-run `Rscript scripts/build_pbmc8k_demo.R` ",
+            "from a terminal for a fuller error log."),
+            msg), "warning")
+        }
         NULL
       })
+
     if (!is.null(ds)) {
       set_active_dataset(state, ds)
     } else {
