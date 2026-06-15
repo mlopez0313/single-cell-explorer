@@ -358,7 +358,17 @@
   out
 }
 
-# Internal: top-label / fraction summary per cluster.
+# Internal: top-label summary per cluster.
+#
+# Columns are deliberately a superset of the canonical
+# `{cluster, top_label, top_score, n_cells}` schema that the rest of
+# the engines emit (SingleR / marker_score / manual): downstream UI
+# code (`R/modules/mod_annotation.R`) reads `top_score` to render the
+# per-cluster table, so EVERY engine must produce that column. For
+# Azimuth-style results, `top_score` is the mean prediction-confidence
+# of the top label across the cluster's cells; we additionally expose
+# `top_fraction` (purity = fraction of the cluster carrying the top
+# label) because it's the more interpretable Azimuth diagnostic.
 .summarise_per_cluster_azimuth <- function(cluster_vec, labels, scores) {
   cluster_ids <- sort(unique(cluster_vec))
   out <- vector("list", length(cluster_ids))
@@ -368,9 +378,18 @@
     tab <- sort(table(labels[in_cl]), decreasing = TRUE)
     top  <- if (length(tab)) names(tab)[1] else NA_character_
     frac <- if (length(tab)) as.numeric(tab[1] / length(in_cl)) else NA_real_
+    # top_score: mean of the per-cell prediction scores for cells in
+    # this cluster whose label IS the top label (closest analogue to
+    # SingleR's per-cluster top_score / marker_score's best signed
+    # score). NA-safe; an all-NA cluster yields NA.
+    top_mask <- !is.na(labels[in_cl]) & labels[in_cl] == top
+    top_score <- if (length(top_mask) && any(top_mask))
+                   mean(scores[in_cl][top_mask], na.rm = TRUE)
+                 else NA_real_
     out[[i]] <- data.frame(
       cluster      = cl,
       top_label    = top,
+      top_score    = top_score,
       top_fraction = frac,
       mean_score   = mean(scores[in_cl], na.rm = TRUE),
       n_cells      = length(in_cl),

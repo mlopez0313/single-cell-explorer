@@ -132,6 +132,43 @@ test_that("run_annotation_engine('azimuth') errors cleanly without Azimuth", {
 
 # ---- Pure converter --------------------------------------------------------
 
+test_that(".azimuth_to_engine_output: cluster_summary carries the canonical top_score column", {
+  # Regression: the per-cluster summary used to ship only
+  # `top_fraction + mean_score`, which broke `mod_annotation`'s
+  # cluster-edit table (`setNames(NULL, ids)` -> attempt to set an
+  # attribute on NULL).
+  cells <- sprintf("c_%02d", 1:8)
+  df <- data.frame(
+    cell                        = cells,
+    predicted.celltype.l2       = c("CD4 T", "CD4 T", "CD4 T",
+                                    "CD8 T", "CD8 T",
+                                    "B naive", "B naive", "NK"),
+    predicted.celltype.l2.score = c(0.9, 0.8, 0.7, 0.85, 0.75,
+                                    0.6, 0.55, 0.5),
+    stringsAsFactors = FALSE
+  )
+  out <- .azimuth_to_engine_output(
+    df, cells = cells,
+    annotation_level   = "celltype.l2",
+    reference          = "pbmcref",
+    cluster_field_used = "cluster",
+    cluster_vec        = c("c1", "c1", "c1", "c2", "c2",
+                           "c3", "c3", "c3"))
+  cs <- out$cluster_summary
+  expect_true(is.data.frame(cs))
+  expect_true(all(c("cluster", "top_label", "top_score",
+                    "top_fraction", "mean_score", "n_cells")
+                  %in% names(cs)))
+  expect_true(is.numeric(cs$top_score))
+  # `top_score` is the mean confidence among cells assigned to the
+  # top label, NOT the mean over the whole cluster -- verify for c1
+  # where all 3 cells got "CD4 T" with scores 0.9/0.8/0.7.
+  c1 <- cs[cs$cluster == "c1", ]
+  expect_equal(c1$top_label,    "CD4 T")
+  expect_equal(c1$top_score,    mean(c(0.9, 0.8, 0.7)))
+  expect_equal(c1$top_fraction, 1.0)
+})
+
 test_that(".azimuth_to_engine_output: schema + label/score alignment", {
   cells <- sprintf("c_%02d", 1:6)
   df <- data.frame(

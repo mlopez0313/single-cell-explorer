@@ -190,6 +190,17 @@ test_that(".celltypist_to_engine_output: cluster_summary when cluster_vec given"
   expect_identical(cs$top_label[cs$cluster == "0"], "T")
   expect_identical(cs$top_label[cs$cluster == "1"], "B")
   expect_identical(out$cluster_field_used, "cluster")
+  # Regression: cluster_summary must carry the canonical `top_score`
+  # column so the Annotation module table doesn't crash with
+  # `attempt to set an attribute on NULL`.
+  expect_true(all(c("cluster", "top_label", "top_score",
+                    "top_fraction", "mean_score", "n_cells")
+                  %in% names(cs)))
+  expect_true(is.numeric(cs$top_score))
+  # top_score is the mean conf_score over cells assigned to the top
+  # label, NOT the cluster-wide mean.
+  expect_equal(cs$top_score[cs$cluster == "0"], mean(c(0.9, 0.85, 0.8)))
+  expect_equal(cs$top_score[cs$cluster == "1"], mean(c(0.7, 0.6)))
 })
 
 # ---- End-to-end (skipped without reticulate + celltypist) ----------------

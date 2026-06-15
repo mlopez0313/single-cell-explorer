@@ -279,15 +279,28 @@ mod_annotation_server <- function(id, state) {
       if (!length(ids))
         return(friendly_warning("No clusters in the chosen field."))
 
-      set       <- get_active_annotation(state)
-      cur_map   <- if (!is.null(set) && !is.null(set$cluster_summary))
-                     setNames(set$cluster_summary$top_label,
-                              as.character(set$cluster_summary$cluster))
-                   else setNames(rep(NA_character_, length(ids)), ids)
-      cur_score <- if (!is.null(set) && !is.null(set$cluster_summary))
-                     setNames(set$cluster_summary$top_score,
-                              as.character(set$cluster_summary$cluster))
-                   else setNames(rep(NA_real_, length(ids)), ids)
+      set      <- get_active_annotation(state)
+      # Extract a column from cluster_summary by name, falling back to a
+      # vector of `default` (one per id) when either the set has no
+      # cluster_summary or the column is absent. This is what kept the
+      # UI from crashing with `attempt to set an attribute on NULL`
+      # when an engine (Azimuth / CellTypist used to be the offenders)
+      # produced a cluster_summary without the canonical `top_score`
+      # column.
+      summary_col <- function(col, default) {
+        if (is.null(set) || is.null(set$cluster_summary) ||
+            !col %in% names(set$cluster_summary)) {
+          return(setNames(rep(default, length(ids)), ids))
+        }
+        cs   <- set$cluster_summary
+        keys <- as.character(cs$cluster)
+        vals <- cs[[col]]
+        if (is.null(vals))   # belt + braces: cs$cluster present but the
+          return(setNames(rep(default, length(ids)), ids))   # col is NULL
+        setNames(vals, keys)
+      }
+      cur_map   <- summary_col("top_label", NA_character_)
+      cur_score <- summary_col("top_score", NA_real_)
       n_cells <- count_cells_per_cluster(state$active_dataset,
                                          input$cluster_field)
 

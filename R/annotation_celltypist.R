@@ -218,7 +218,13 @@
   )
 }
 
-# Internal: top-label / fraction summary per cluster.
+# Internal: top-label summary per cluster.
+#
+# See `.summarise_per_cluster_azimuth()` for the schema rationale. We
+# emit `top_score` (mean confidence among cells assigned to the top
+# label) as the canonical comparator column, alongside the
+# CellTypist-specific `top_fraction` (cluster purity) and `mean_score`
+# (mean confidence over the whole cluster, regardless of label).
 .summarise_per_cluster_celltypist <- function(cluster_vec, labels, scores) {
   cluster_ids <- sort(unique(cluster_vec))
   out <- vector("list", length(cluster_ids))
@@ -228,9 +234,14 @@
     tab <- sort(table(labels[in_cl]), decreasing = TRUE)
     top  <- if (length(tab)) names(tab)[1] else NA_character_
     frac <- if (length(tab)) as.numeric(tab[1] / length(in_cl)) else NA_real_
+    top_mask <- !is.na(labels[in_cl]) & labels[in_cl] == top
+    top_score <- if (length(top_mask) && any(top_mask))
+                   mean(scores[in_cl][top_mask], na.rm = TRUE)
+                 else NA_real_
     out[[i]] <- data.frame(
       cluster      = cl,
       top_label    = top,
+      top_score    = top_score,
       top_fraction = frac,
       mean_score   = mean(scores[in_cl], na.rm = TRUE),
       n_cells      = length(in_cl),
