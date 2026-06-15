@@ -96,8 +96,86 @@ server <- function(input, output, session) {
   sidebar_server(input, output, session, state)
   workspace_server(input, output, session, state)
 
-  # Dataset loading (mock for now; real loaders live in R/dataset.R)
+  # Dataset loading.
+  #
+  # The "Load demo dataset" sidebar button drives a 3-tier resolution
+  # chain implemented in R/demo_dataset.R:
+  #
+  #   1. Prepared artifact present  -> load it directly (instant).
+  #   2. Artifact missing + the build packages are installed (Seurat +
+  #      Bioc deps) + auto-build is not opted out by env var ->
+  #      build the artifact in-process via `ensure_demo_dataset()`,
+  #      wrapped in `shiny::withProgress()` for live status, then load.
+  #      The first build pulls PBMC 8k counts via ExperimentHub (cached
+  #      after first run) so subsequent clicks across sessions go
+  #      straight to tier 1.
+  #   3. Artifact missing AND auto-build cannot run (missing packages
+  #      or `SCE_AUTO_BUILD_DEMO=0`) -> push a clear workspace warning
+  #      naming what's missing and fall back to the synthetic
+  #      `mock_dataset()` so the first-run UI experience always works.
+  #
+  # The input id stays `load_mock_dataset` for back-compat (tests /
+  # external scripts may bind to it).
   observeEvent(input$load_mock_dataset, {
+    # Tier 1: existing artifact.
+    if (demo_dataset_exists()) {
+      ds <- tryCatch(load_demo_dataset(),
+                     error = function(e) {
+                       push_message(state, sprintf(
+                         "Could not load prepared demo artifact: %s",
+                         conditionMessage(e)), "warning")
+                       NULL
+                     })
+      if (!is.null(ds)) {
+        set_active_dataset(state, ds)
+        return()
+      }
+    }
+
+    # Tier 2: auto-build.
+    if (demo_auto_build_enabled() && can_build_demo_dataset()) {
+      push_message(state, paste0(
+        "Building prepared PBMC 8k demo artifact (one-time setup; ",
+        "first run downloads ~30 MB via ExperimentHub, then ~30-90s of ",
+        "Seurat preprocessing). Subsequent sessions reuse the artifact."),
+        "info")
+      ds <- tryCatch(
+        shiny::withProgress(
+          message = "Preparing PBMC 8k demo dataset",
+          detail  = "first-run, one-time cost",
+          value   = 0,
+          {
+            ensure_demo_dataset(progress = function(fraction, detail = NULL) {
+              shiny::setProgress(value = fraction, detail = detail)
+            })
+          }),
+        error = function(e) {
+          push_message(state, sprintf(
+            "Demo build failed: %s. Falling back to mock_dataset().",
+            conditionMessage(e)), "warning")
+          NULL
+        })
+      if (!is.null(ds)) {
+        set_active_dataset(state, ds)
+        return()
+      }
+    } else {
+      # Tier 3: explain why we're not auto-building.
+      reason <- if (!demo_auto_build_enabled())
+                  "SCE_AUTO_BUILD_DEMO is disabled in the environment"
+                else demo_auto_build_status()
+      push_message(state,
+                   sprintf(paste0(
+                     "Prepared PBMC 8k demo artifact not found at %s and ",
+                     "auto-build was skipped (%s). Falling back to ",
+                     "mock_dataset(). Run `Rscript scripts/build_pbmc8k_demo.R` ",
+                     "(or install the missing packages) to enable the ",
+                     "PBMC 8k demo."),
+                     demo_dataset_path(), reason),
+                   "warning")
+    }
+
+    # Final fallback: synthetic mock dataset.
     set_active_dataset(state, mock_dataset())
   })
 

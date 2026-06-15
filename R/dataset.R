@@ -24,7 +24,8 @@
 dataset_schema <- function() {
   c(
     "name",              # character(1) dataset display name
-    "source",            # one of "mock", "seurat", "anndata", "10x"
+    "source",            # one of "mock", "seurat", "anndata", "10x",
+                         #        "demo_pbmc8k" (prepared demo artifact)
     "n_cells",           # integer(1)
     "n_genes",           # integer(1)
     "assays",            # character() available assay names

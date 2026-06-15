@@ -58,8 +58,12 @@ sidebar_ui <- function() {
     shiny::div(
       class = "sidebar-section",
       shiny::p(class = "sidebar-section__label", "Dataset"),
+      # Input id stays "load_mock_dataset" for back-compat with tests and
+      # external scripts; the visible label now reflects that the button
+      # loads the prepared PBMC 8k demo artifact when present (with a
+      # graceful fallback to the synthetic mock_dataset()).
       shiny::actionButton(
-        "load_mock_dataset", "Load mock dataset",
+        "load_mock_dataset", "Load demo dataset",
         class = "btn btn-primary btn-sm", width = "100%"),
       shiny::div(class = "sidebar-dataset-status",
                  shiny::textOutput("sidebar_dataset_status", inline = TRUE))

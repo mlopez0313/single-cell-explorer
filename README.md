@@ -39,6 +39,15 @@ missing-dep errors print the exact install command (CRAN /
 The mock dataset (`mock_dataset()`) exists so the app is fully usable
 with no external data and so every test runs with no optional deps.
 
+For the user-facing demo experience the sidebar's **Load demo dataset**
+button prefers a prepared PBMC 8k artifact serialized at
+`inst/extdata/pbmc8k_demo.rds`. If the artifact is missing on first
+click, the app will **auto-build it in-process** (when the build packages
+are installed) with a live `withProgress()` indicator -- the artifact is
+written to disk so the next click is instant. See the
+[Demo dataset](#demo-dataset) section below for control over the build
+chain and how to opt out.
+
 ## Run it
 
 ```bash
@@ -51,8 +60,82 @@ Or from R:
 shiny::runApp("scrna-explorer")
 ```
 
-Then click **Load mock dataset** in the sidebar to populate the UI with an
-in-memory dataset. No real data is required to exercise the shell.
+Then click **Load demo dataset** in the sidebar to populate the UI. On
+first click, the app will (in order):
+
+1. **load** an existing `inst/extdata/pbmc8k_demo.rds` if you've already
+   built it (instant), or
+2. **auto-build** the artifact in-process when the build packages are
+   installed (Seurat + `TENxPBMCData` + friends; see below). Progress
+   appears in a `withProgress()` overlay. The artifact is saved to disk
+   so subsequent clicks across sessions go straight to (1), or
+3. **fall back** to the synthetic `mock_dataset()` with a workspace
+   warning that names what's missing -- so the UI always works even on
+   a fresh machine with no extra deps.
+
+## Demo dataset
+
+The sidebar button is backed by a **prepared local `.rds` artifact** at
+`inst/extdata/pbmc8k_demo.rds`. The artifact is not bundled in the repo
+(it's data); you can either let the app build it on first click (auto-
+build, default) or prebuild it explicitly:
+
+```bash
+Rscript scripts/build_pbmc8k_demo.R
+```
+
+### Controlling the auto-build
+
+| Env var                | Effect                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- |
+| `SCE_AUTO_BUILD_DEMO`  | Set to `0` / `false` / `no` / `off` to disable in-app auto-build. Default `1` (enabled).                |
+| `SCE_DEMO_DATASET`     | Full path to an existing `.rds` (load + write). Useful for keeping the artifact outside the repo.       |
+| `SCE_DEMO_SOURCE`      | Switch the offline `Rscript` builder between `tenx_pbmc_data` (default), `tenx_dir`, `seurat_object_rds`. |
+| `SCE_DEMO_INPUT`       | Path used by the `tenx_dir` / `seurat_object_rds` build sources.                                        |
+| `SCE_DEMO_OUT`         | Output `.rds` path for the `Rscript` builder.                                                           |
+| `SCE_DEMO_SEED`        | Integer seed for the demo-augmentation step (default `8`).                                              |
+
+Auto-build only uses the default `tenx_pbmc_data` source (the other two
+require user-supplied paths, which the in-app button can't infer). If
+you need a non-default source, invoke `scripts/build_pbmc8k_demo.R`
+directly with the env vars above.
+
+By default the build pulls counts from
+[`TENxPBMCData::TENxPBMCData("pbmc8k")`](https://bioconductor.org/packages/TENxPBMCData/)
+and runs the standard Seurat pipeline
+(`NormalizeData`/`FindVariableFeatures`/`ScaleData`/`RunPCA`/`FindNeighbors`/`FindClusters`/`RunUMAP`/`RunTSNE`).
+The build path requires the following packages (build-time only -- the
+running app needs none of them):
+
+| build source         | required packages                                                  |
+| -------------------- | ------------------------------------------------------------------ |
+| `tenx_pbmc_data` (default) | `Seurat`, `SeuratObject`, `Matrix`, **plus** Bioconductor: `TENxPBMCData`, `SingleCellExperiment`, `SummarizedExperiment` |
+| `tenx_dir`           | `Seurat`, `SeuratObject`, `Matrix`                                 |
+| `seurat_object_rds`  | `SeuratObject` (just deserialises an already-prepared object)      |
+
+Switch sources via environment variables:
+
+```bash
+SCE_DEMO_SOURCE=tenx_dir SCE_DEMO_INPUT=/path/to/pbmc8k/filtered_feature_bc_matrix \
+  Rscript scripts/build_pbmc8k_demo.R
+```
+
+```bash
+SCE_DEMO_SOURCE=seurat_object_rds SCE_DEMO_INPUT=/path/to/pbmc8k.rds \
+  Rscript scripts/build_pbmc8k_demo.R
+```
+
+Override the artifact location with `SCE_DEMO_DATASET` (full path to the
+`.rds`) -- handy when keeping demo artifacts outside the repo. The
+runtime loader picks the same env var up; no app-side configuration
+needed.
+
+The builder normalises the dataset into the app's flat schema and
+augments it with the demo-friendly fields the modules implicitly use
+(`cluster`, `cell_type`, `condition`, `sample`, `pseudotime_demo`,
+embedded UMAP/PCA/tSNE columns). The runtime loader does a schema
+validation pass on load and refuses to start with a corrupted artifact
+(with a hint to rebuild).
 
 ### Requirements
 
