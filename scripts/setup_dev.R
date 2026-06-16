@@ -75,9 +75,19 @@ cat(sprintf("  dry-run : %s\n", if (dry_run) "yes" else "no"))
 cat("\n")
 
 # ---- Run -----------------------------------------------------------------
-sce_setup(tier = tier, auto = auto, dry_run = dry_run)
+# `sce_setup()` raises on install failure (e.g. missing system library
+# blocked a package). Capture so we can still print the post-setup
+# preflight summary -- the user wants to see exactly which tiers ended
+# up incomplete -- and then exit non-zero so CI / pipelines notice.
+setup_err <- tryCatch({ sce_setup(tier = tier, auto = auto, dry_run = dry_run); NULL },
+                     error = function(e) e)
 
 # ---- Post-setup status ---------------------------------------------------
 cat("\n=================================================================\n")
 cat(sce_preflight_message())
 cat("\n=================================================================\n")
+
+if (!is.null(setup_err)) {
+  message(sprintf("\nsce_setup error: %s", conditionMessage(setup_err)))
+  quit(status = 1, save = "no")
+}

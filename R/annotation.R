@@ -195,20 +195,72 @@ run_annotation_engine <- function(engine_id, dataset, state, params,
   )
 }
 
-# ---- Apply to dataset (provenance-named column) ---------------------------
+# ---- Apply to dataset (name-driven column) --------------------------------
+
+#' Sanitize a free-form annotation set name into a valid metadata column.
+#'
+#' Lower-cases, maps any non `[a-z0-9_]` character to an underscore,
+#' collapses runs of underscores, and strips leading/trailing
+#' underscores. Falls back to `"annotation"` when the input is empty
+#' or sanitizes away. Prepends `x_` when the result starts with a
+#' digit so the column is a valid R name.
+#'
+#' Pure; safe to unit-test.
+#'
+#' @param name character(1)
+#' @return character(1)
+.annotation_col_basename <- function(name) {
+  s <- tolower(as.character(name %||% ""))
+  s <- gsub("[^a-z0-9_]+", "_", s)
+  s <- gsub("_+", "_", s)
+  s <- gsub("^_+|_+$", "", s)
+  if (!nzchar(s)) s <- "annotation"
+  if (grepl("^[0-9]", s)) s <- paste0("x_", s)
+  s
+}
+
+#' Find an existing dataset column produced by a given annotation set.
+#'
+#' Walks `dataset$cell_data` and returns the first column whose
+#' `annotation_set_id` attribute matches `set_id`, or NULL.
+#' Attribute-based (not name-based) so renaming the set doesn't lose
+#' track of the previously-applied column.
+.find_annotation_col_for_set <- function(dataset, set_id) {
+  if (is.null(dataset$cell_data) || is.null(set_id)) return(NULL)
+  for (col in names(dataset$cell_data)) {
+    a <- attr(dataset$cell_data[[col]], "annotation_set_id", exact = TRUE)
+    if (!is.null(a) && identical(a, set_id)) return(col)
+  }
+  NULL
+}
 
 #' Persist an annotation set onto the dataset's metadata table.
 #'
-#' Creates a NEW column named `annotation__<set_id>__<YYYY_MM_DD>` and
-#' registers it as a metadata field. Never writes `cell_type` (or any
-#' generic name) and refuses to overwrite an existing column. The
-#' annotation set itself remains the primary source of truth -- this
-#' function exists for export workflows, downstream tools that only know
-#' how to read metadata columns, and for users who want to color by the
-#' label inside the Explorer.
+#' The applied column name is derived from `set$name` (sanitized to a
+#' valid R identifier). Re-applying the same set after a rename
+#' renames the existing column accordingly -- the column is keyed by
+#' the set's `set_id`, stored as the column's `annotation_set_id`
+#' attribute, NOT by its surface name. This means:
 #'
-#' Provenance attributes are attached to the new column via `attr()` so
-#' downstream readers can trace which set produced the values.
+#'   * Renaming a set and clicking "Apply" again moves the
+#'     previously-applied column to the new name.
+#'   * Re-running the same engine on the same set (different label
+#'     values, same set_id) updates the existing column in place.
+#'   * Two unrelated sets that happen to share a base name get
+#'     numeric suffixes (`name`, `name_2`, `name_3`, ...) so neither
+#'     clobbers the other.
+#'
+#' The annotation set itself remains the primary source of truth --
+#' this function exists for export workflows, downstream tools that
+#' only know how to read metadata columns, and for users who want to
+#' color by the label inside the Explorer.
+#'
+#' Provenance attributes are attached to the new column via `attr()`
+#' so downstream readers can trace which set produced the values
+#' regardless of the column's surface name.
+#'
+#' Refuses to write the literal name `"cell_type"` (a generic name
+#' that downstream tools may treat specially).
 #'
 #' @param dataset  the dataset list
 #' @param set      an `annotation_result_v1` object
@@ -232,22 +284,37 @@ apply_annotations_to_dataset <- function(dataset, set) {
   }
   values <- set$cell_labels[pos]
 
-  date_str <- format(set$created_at %||% Sys.time(), "%Y_%m_%d")
-  col_name <- sprintf("annotation__%s__%s", set$set_id, date_str)
-
-  if (identical(col_name, "cell_type")) {
-    stop("Refusing to write a generic 'cell_type' column.", call. = FALSE)
+  # Desired column name = sanitized set name. Fall back to set_id when
+  # the name is missing / blank (shouldn't happen via the UI, which
+  # always defaults to a non-empty name -- but keep it robust).
+  base_name <- .annotation_col_basename(set$name %||% set$set_id)
+  if (identical(base_name, "cell_type")) {
+    stop("Refusing to write a generic 'cell_type' column. Rename the ",
+         "annotation set to something more specific.", call. = FALSE)
   }
-  if (col_name %in% names(dataset$cell_data)) {
-    stop(sprintf(
-      "Column '%s' already exists; refusing to overwrite. ",
-      col_name), call. = FALSE)
+
+  # If a column for THIS set already exists (same `annotation_set_id`
+  # attribute), remove it first. The new column may end up with a
+  # different name; equivalent to renaming the column in place.
+  prev_col <- .find_annotation_col_for_set(dataset, set$set_id)
+  if (!is.null(prev_col)) {
+    dataset$cell_data[[prev_col]] <- NULL
+    dataset$metadata_fields <- setdiff(dataset$metadata_fields, prev_col)
+  }
+
+  # Disambiguate against unrelated columns (different set_id but same
+  # desired base name).
+  col_name <- base_name
+  i <- 2L
+  while (col_name %in% names(dataset$cell_data)) {
+    col_name <- sprintf("%s_%d", base_name, i)
+    i <- i + 1L
   }
 
   dataset$cell_data[[col_name]] <- values
-  attr(dataset$cell_data[[col_name]], "annotation_set_id")        <- set$set_id
-  attr(dataset$cell_data[[col_name]], "annotation_set_name")      <- set$name
-  attr(dataset$cell_data[[col_name]], "annotation_engine_id")     <- set$engine_id
+  attr(dataset$cell_data[[col_name]], "annotation_set_id")         <- set$set_id
+  attr(dataset$cell_data[[col_name]], "annotation_set_name")       <- set$name
+  attr(dataset$cell_data[[col_name]], "annotation_engine_id")      <- set$engine_id
   attr(dataset$cell_data[[col_name]], "annotation_engine_version") <- set$engine_version
   attr(dataset$cell_data[[col_name]], "marker_registry_version")   <- set$marker_registry_version
   attr(dataset$cell_data[[col_name]], "schema_version")            <- set$schema_version
@@ -255,6 +322,22 @@ apply_annotations_to_dataset <- function(dataset, set) {
 
   dataset$metadata_fields <- unique(c(dataset$metadata_fields, col_name))
   dataset
+}
+
+#' Names of columns in `dataset$cell_data` produced by an annotation set.
+#'
+#' Detected via the `annotation_set_id` attribute, so renames don't
+#' break the lookup. Used by the Annotation module's cluster-field
+#' picker to hide annotation columns (recursive annotation is rarely
+#' what you want).
+annotation_columns <- function(dataset) {
+  if (is.null(dataset$cell_data)) return(character())
+  out <- character()
+  for (col in names(dataset$cell_data)) {
+    a <- attr(dataset$cell_data[[col]], "annotation_set_id", exact = TRUE)
+    if (!is.null(a)) out <- c(out, col)
+  }
+  out
 }
 
 # ---- CSV export (annotation result -> wide / tidy table) ------------------

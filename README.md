@@ -50,6 +50,26 @@ chain and how to opt out.
 
 ## Quick start (recommended)
 
+### 0. (Optional) conda env with R + system libraries
+
+If you don't already have R 4.5 + a working C/C++/Fortran toolchain + the
+Bioconductor system libraries (HDF5, libxml2, cairo, glpk, ...) on the
+host, create the project's reproducible conda env from the checked-in
+spec:
+
+```bash
+mamba env create -f conda/environment.yml \
+    -p /path/to/conda-envs/single-cell-explorer
+conda activate /path/to/conda-envs/single-cell-explorer
+```
+
+(Substitute `conda` for `mamba` if you don't have mamba.) The env spec
+only installs R and *system* dependencies -- not R packages -- because
+mixing conda's `r-*`/`bioconductor-*` packages with `BiocManager::install()`
+is a known source of lazy-load corruption.
+
+### 1. Install R packages
+
 One-time, on a fresh clone:
 
 ```bash
@@ -72,6 +92,26 @@ the banner points at the setup script. Nothing is ever installed at
 launch time -- the only install path is the explicit setup script.
 
 ## Run it
+
+The repo ships a launcher that sets `TMPDIR` to a scratch dir under the
+app root *before* R starts. Use it whenever your OS `/tmp` (or `/`) is
+small but the app lives on a larger filesystem (NFS, datapool, etc.) --
+otherwise multi‑GB Bioconductor data packages (worst offender:
+`BSgenome.Hsapiens.UCSC.hg38` at ~870 MB tarball / ~3.4 GB unpacked)
+will silently fail mid‑download with empty per‑package logs:
+
+```bash
+./scripts/run_app.sh
+```
+
+Override either knob if you need to:
+
+```bash
+TMPDIR=/path/with/lots/of/free/space ./scripts/run_app.sh   # full redirect
+SCE_SCRATCH_DIR=/path/with/space      ./scripts/run_app.sh   # subprocess + downloads only
+```
+
+Or, if you don't need the launcher:
 
 ```bash
 R -e 'shiny::runApp("scrna-explorer", port = 3838, host = "0.0.0.0", launch.browser = FALSE)'
@@ -114,6 +154,21 @@ first click, the app will (in order):
 > the first run in a fresh session always completes cleanly. The app
 > detects this specific failure mode and surfaces a restart hint
 > instead of a generic error.
+
+> **Setup logs.** Every in-app install + build attempt mirrors its
+> output to a timestamped log file in
+> `tools::R_user_dir("single-cell-explorer", "cache")/logs/` (the
+> exact path is printed in the workspace info banner as soon as
+> install starts). The terminal still receives a live feed. If the
+> attempt fails, the workspace warning includes the log path AND a
+> short extracted summary of error-shaped lines. From the R console
+> you can inspect the most recent run with:
+>
+> ```r
+> path <- list.files(sce_log_dir(), full.names = TRUE) |> sort() |> tail(1)
+> cat(sce_log_summary(path), sep = "\n")  # error-shaped lines only
+> cat(sce_log_tail(path, 200), sep = "\n")  # last 200 lines, full fidelity
+> ```
 
 ## Demo dataset
 
@@ -560,11 +615,20 @@ sets. Files involved:
      *Run engine*. Cell-type marker panels from `state$marker_registry`
      are scored against each cluster; top label per cluster is written
      to the set (per-cell labels are stored, not per-cluster).
-4. **Apply to dataset metadata** writes a provenance-named column
-   `annotation__<set_id>__<YYYY_MM_DD>` onto `dataset$cell_data` and
-   registers it in `metadata_fields`. The Explorer's Color-by-metadata
-   picker will list it. Generic `cell_type` is refused; existing columns
-   are never overwritten.
+4. **Apply to dataset metadata** writes a column named after the set
+   (e.g. set name `"Azimuth L2"` -> column `azimuth_l2`) onto
+   `dataset$cell_data` and registers it in `metadata_fields`. The
+   Explorer's Color-by-metadata picker will list it. Naming rules:
+   - The set name is lower-cased and `[^a-z0-9_]+` is collapsed to `_`;
+     empty / pathological names fall back to `annotation`.
+   - The column is keyed by the set's `set_id` (stored as the
+     `annotation_set_id` attribute), NOT by name. Renaming the set
+     and re-applying renames the column. Re-running the engine
+     on the same set updates the same column in place.
+   - Two unrelated sets that resolve to the same base name get
+     numeric suffixes (`name`, `name_2`, ...).
+   - The literal name `cell_type` is refused (downstream tools
+     sometimes treat it as a specific format).
 5. **Download CSV** exports the active set.
 
 #### Multi-set operations

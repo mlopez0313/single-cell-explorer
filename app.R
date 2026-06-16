@@ -98,7 +98,11 @@ ui <- tagList(
       htmltools::tags$main (class = "app-workspace",
         htmltools::div(class = "app-workspace__inner", workspace_ui())
       )
-    )
+    ),
+    # Console drawer. Lives at page-root rather than inside `.app-shell`
+    # so its fixed-position styling isn't clipped by overflow on the
+    # shell containers.
+    mod_console_panel_ui("console")
   )
 )
 
@@ -109,6 +113,7 @@ server <- function(input, output, session) {
   # Sidebar + workspace wiring
   sidebar_server(input, output, session, state)
   workspace_server(input, output, session, state)
+  mod_console_panel_server("console")
 
   # Dataset loading.
   #
@@ -148,23 +153,35 @@ server <- function(input, output, session) {
 
     # Tier 2: auto-build.
     if (demo_auto_build_enabled() && can_build_demo_dataset()) {
+      # Capture the full build (including any ExperimentHub /
+      # BiocFileCache chatter) to a log file. Previously the build
+      # path was not wrapped, so when ExperimentHub failed to fetch a
+      # resource (e.g. EH1616) we had only the short surfaced message
+      # and no way to inspect the underlying HTTPS / cache error.
+      log_path <- sce_open_log("demo_build")
       push_message(state, paste0(
         "Building prepared PBMC 8k demo artifact (one-time setup; ",
         "first run downloads ~30 MB via ExperimentHub, then ~30-90s of ",
-        "Seurat preprocessing). Subsequent sessions reuse the artifact."),
+        "Seurat preprocessing). Subsequent sessions reuse the artifact.\n",
+        sprintf("Full build log: %s", log_path)),
         "info")
       ds <- tryCatch(
         shiny::withProgress(
           message = "Preparing PBMC 8k demo dataset",
           detail  = "first-run, one-time cost",
           value   = 0,
-          {
+          sce_run_with_log(
             ensure_demo_dataset(progress = function(fraction, detail = NULL) {
               shiny::setProgress(value = fraction, detail = detail)
-            })
-          }),
+            }),
+            log_path = log_path)),
         error = function(e) {
           msg <- conditionMessage(e)
+          summary <- sce_log_summary(log_path, max_lines = 10L)
+          tail_hint <- if (length(summary))
+            paste0("\nKey log lines:\n  - ",
+                   paste(summary, collapse = "\n  - "))
+          else ""
           if (.is_lazy_load_corruption(msg)) {
             push_message(state, paste0(
               "Demo build aborted: a required package's on-disk files ",
@@ -172,12 +189,14 @@ server <- function(input, output, session) {
               "in-memory lazy-load cache no longer matches the disk. ",
               "Quit the app (Ctrl+C in the terminal), restart it with ",
               "`shiny::runApp(\".\")`, and click \"Load demo dataset\" ",
-              "again. Loading mock_dataset() for now."),
+              "again. Loading mock_dataset() for now.\n",
+              sprintf("Full build log: %s%s", log_path, tail_hint)),
               "warning")
           } else {
-            push_message(state, sprintf(
-              "Demo build failed: %s. Falling back to mock_dataset().",
-              msg), "warning")
+            push_message(state, sprintf(paste0(
+              "Demo build failed: %s. Falling back to mock_dataset().\n",
+              "Full build log: %s%s"),
+              msg, log_path, tail_hint), "warning")
           }
           NULL
         })
@@ -259,21 +278,40 @@ server <- function(input, output, session) {
   observeEvent(input$demo_install_confirm, {
     shiny::removeModal()
 
+    # One log file spans both phases of this attempt -- the build
+    # phase's failure mode often references a package the install
+    # phase had to roll back, so keeping them in one place is the
+    # most useful debugging artefact.
+    log_path <- sce_open_log("demo_setup")
+    push_message(state, sprintf(
+      "Logging full install + build output to %s", log_path), "info")
+
+    # Build a workspace-friendly failure message that always includes
+    # the log path AND a short extracted summary of error-shaped
+    # lines.
+    .demo_setup_failed_msg <- function(stage, e) {
+      summary <- sce_log_summary(log_path, max_lines = 10L)
+      base <- sprintf("%s failed: %s\nFull log: %s",
+                      stage, conditionMessage(e), log_path)
+      if (length(summary) == 0L) return(base)
+      paste0(base, "\nKey log lines:\n  - ",
+             paste(summary, collapse = "\n  - "))
+    }
+
     install_ok <- tryCatch({
       shiny::withProgress(
         message = "Installing dependencies for PBMC 8k demo",
-        detail  = "one-time install (~5-15 min)",
+        detail  = "one-time install (~5-15 min) -- output streaming to log",
         value   = 0,
-        sce_install_for_demo(progress = function(fraction, detail = NULL) {
-          shiny::setProgress(value = fraction, detail = detail)
-        }))
+        sce_run_with_log(
+          sce_install_for_demo(progress = function(fraction, detail = NULL) {
+            shiny::setProgress(value = fraction, detail = detail)
+          }),
+          log_path = log_path))
       TRUE
     }, error = function(e) {
-      push_message(state, sprintf(paste0(
-        "Demo package install failed: %s. Falling back to ",
-        "mock_dataset(). For a richer error log, re-run from a ",
-        "terminal: `Rscript scripts/setup_dev.R --demo`."),
-        conditionMessage(e)), "warning")
+      push_message(state, .demo_setup_failed_msg("Demo package install", e),
+                   "warning")
       FALSE
     })
 
@@ -287,30 +325,26 @@ server <- function(input, output, session) {
         message = "Building PBMC 8k demo dataset",
         detail  = "first-run only (~30-90s)",
         value   = 0,
-        ensure_demo_dataset(
-          force_build = TRUE,
-          progress    = function(fraction, detail = NULL) {
-            shiny::setProgress(value = fraction, detail = detail)
-          })),
+        sce_run_with_log(
+          ensure_demo_dataset(
+            force_build = TRUE,
+            progress    = function(fraction, detail = NULL) {
+              shiny::setProgress(value = fraction, detail = detail)
+            }),
+          log_path = log_path)),
       error = function(e) {
         msg <- conditionMessage(e)
         if (.is_lazy_load_corruption(msg)) {
-          push_message(state, paste0(
+          push_message(state, sprintf(paste0(
             "Demo packages installed successfully, but this Shiny ",
-            "session is still using the old (now-stale) in-memory ",
-            "image of those packages. R cannot safely use a package ",
-            "whose on-disk files were rewritten mid-session. ",
-            "Quit the app (Ctrl+C in the terminal), restart it with ",
+            "session is still using stale in-memory package files. ",
+            "Quit the app (Ctrl+C in the terminal), restart with ",
             "`shiny::runApp(\".\")`, and click \"Load demo dataset\" ",
-            "again -- the build will complete in a fresh session. ",
-            "Loading mock_dataset() for now."),
+            "again. Full log: %s"), log_path),
             "warning")
         } else {
-          push_message(state, sprintf(paste0(
-            "Demo build failed after install: %s. Falling back to ",
-            "mock_dataset(). Re-run `Rscript scripts/build_pbmc8k_demo.R` ",
-            "from a terminal for a fuller error log."),
-            msg), "warning")
+          push_message(state, .demo_setup_failed_msg("Demo build", e),
+                       "warning")
         }
         NULL
       })

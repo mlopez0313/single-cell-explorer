@@ -1,3 +1,89 @@
+# ---- 10x CDN source: cache + extraction helpers -----------------------------
+# We avoid hitting cf.10xgenomics.com in unit tests. The download path
+# is exercised manually; what we cover here is the cache/extract logic
+# that decides whether to skip the network on subsequent runs.
+
+test_that(".pbmc8k_cdn_cache_dir honours SCE_DEMO_CACHE_DIR override", {
+  skip_if_not_installed("withr")
+  td <- tempfile("sce-pbmc-cache-")
+  on.exit(unlink(td, recursive = TRUE), add = TRUE)
+  withr::with_envvar(c(SCE_DEMO_CACHE_DIR = td), {
+    expect_identical(.pbmc8k_cdn_cache_dir(),
+                     file.path(td, "pbmc8k"))
+  })
+})
+
+test_that(".pbmc8k_tarball_ok accepts only files in the expected size band", {
+  td <- tempfile("sce-pbmc-tarball-")
+  dir.create(td)
+  on.exit(unlink(td, recursive = TRUE), add = TRUE)
+  too_small <- file.path(td, "too_small.tar.gz")
+  ok        <- file.path(td, "ok.tar.gz")
+  too_big   <- file.path(td, "too_big.tar.gz")
+
+  # tiny file: missing
+  writeBin(raw(1024L), too_small)
+  expect_false(.pbmc8k_tarball_ok(too_small))
+
+  # in-band file: ~30 MB (write a sparse-equivalent placeholder)
+  con <- file(ok, open = "wb")
+  on.exit(close(con), add = TRUE)
+  writeBin(raw(30 * 1024^2), con)
+  close(con); on.exit({}, add = FALSE)
+  expect_true(.pbmc8k_tarball_ok(ok))
+
+  expect_false(.pbmc8k_tarball_ok("/no/such/file"))
+})
+
+test_that(".pbmc8k_find_matrix_dir locates the 10x triplet recursively", {
+  td <- tempfile("sce-pbmc-extracted-")
+  dir.create(td, recursive = TRUE)
+  on.exit(unlink(td, recursive = TRUE), add = TRUE)
+
+  # Empty dir: not found.
+  expect_null(.pbmc8k_find_matrix_dir(td))
+
+  # Build the canonical layout: <root>/filtered_gene_bc_matrices/GRCh38/...
+  matrix_dir <- file.path(td, "filtered_gene_bc_matrices", "GRCh38")
+  dir.create(matrix_dir, recursive = TRUE)
+  for (f in c("matrix.mtx", "barcodes.tsv", "genes.tsv")) {
+    writeLines("dummy", file.path(matrix_dir, f))
+  }
+  expect_identical(normalizePath(.pbmc8k_find_matrix_dir(td)),
+                   normalizePath(matrix_dir))
+
+  # Gzipped variant should also be picked up.
+  unlink(list.files(matrix_dir, full.names = TRUE))
+  for (f in c("matrix.mtx.gz", "barcodes.tsv.gz", "features.tsv.gz")) {
+    writeLines("dummy", file.path(matrix_dir, f))
+  }
+  expect_identical(normalizePath(.pbmc8k_find_matrix_dir(td)),
+                   normalizePath(matrix_dir))
+})
+
+test_that(".pbmc8k_ensure_extracted is a no-op when both tarball and dir exist", {
+  skip_if_not_installed("withr")
+  td <- tempfile("sce-pbmc-ext-")
+  dir.create(td)
+  on.exit(unlink(td, recursive = TRUE), add = TRUE)
+
+  tarball <- file.path(td, "pbmc.tar.gz")
+  con <- file(tarball, open = "wb")
+  writeBin(raw(30 * 1024^2), con)
+  close(con)
+
+  extract_root <- file.path(td, "extracted")
+  matrix_dir   <- file.path(extract_root, "filtered_gene_bc_matrices", "GRCh38")
+  dir.create(matrix_dir, recursive = TRUE)
+  for (f in c("matrix.mtx", "barcodes.tsv", "genes.tsv")) {
+    writeLines("dummy", file.path(matrix_dir, f))
+  }
+
+  # Should NOT touch the network and should return the existing dir.
+  got <- .pbmc8k_ensure_extracted(tarball, extract_root)
+  expect_identical(normalizePath(got), normalizePath(matrix_dir))
+})
+
 test_that(".ensure_bioc_cache_dirs creates the configured cache directory", {
   skip_if_not_installed("withr")
   td <- tempfile("sce-user-cache-")

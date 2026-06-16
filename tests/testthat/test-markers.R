@@ -1,3 +1,12 @@
+# `compute_markers()` emits per-group heartbeat messages by default so
+# the Shiny module's log file shows progress on long runs. Tests don't
+# care about them and would otherwise pollute testthat output -- gate
+# them off for the whole file.
+local({
+  old <- options(sce.marker_progress = FALSE)
+  withr::defer(options(old), teardown_env())
+})
+
 test_that("compute_markers defaults to wilcox", {
   expect_identical(eval(formals(compute_markers)$test)[1], "wilcox")
   ds <- mock_dataset(n_cells = 120, seed = 2)

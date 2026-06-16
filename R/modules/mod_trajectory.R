@@ -402,12 +402,18 @@ mod_trajectory_server <- function(id, state) {
     })
 
     # ---- Gene picker (synced with shared state$selected_gene) ----------
+    # Server-side gene picker. See R/ui_components.R for rationale.
     output$gene_picker_ui <- shiny::renderUI({
-      genes <- available_genes(state$active_dataset)
+      gene_picker_input(ns("gene"), label = NULL,
+                        selected = state$selected_gene)
+    })
+    shiny::observe({
+      ds <- state$active_dataset; shiny::req(ds)
+      genes <- available_genes(ds)
       current <- state$selected_gene %||% genes[1]
-      if (!current %in% genes) current <- genes[1]
-      shiny::selectizeInput(ns("gene"), label = NULL,
-                            choices = genes, selected = current)
+      if (!isTRUE(current %in% genes)) current <- genes[1]
+      update_gene_picker(session, "gene",
+                         choices = genes, selected = current)
     })
     shiny::observeEvent(input$gene, {
       if (!is.null(input$gene) && nzchar(input$gene)) {

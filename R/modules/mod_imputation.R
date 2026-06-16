@@ -101,13 +101,21 @@ mod_imputation_server <- function(id, state) {
                          choices  = available_assays(state$active_dataset),
                          selected = state$selected_assay)
     })
+    # Server-side multi-select gene picker. See R/ui_components.R for
+    # the rationale. Empty selection is treated as "all genes" by the
+    # `run` observer (see `requested <- input$genes` block below), so
+    # we deliberately leave `selected = NULL` here: pre-populating
+    # 32k initial selections in selectize would defeat the
+    # server-side optimisation.
     output$target_genes_ui <- shiny::renderUI({
-      genes <- available_genes(state$active_dataset)
-      shiny::selectizeInput(ns("genes"), "Target genes",
-                            choices  = genes,
-                            selected = genes,
-                            multiple = TRUE,
-                            options  = list(placeholder = "blank = all genes"))
+      gene_picker_input(ns("genes"), "Target genes",
+                        multiple    = TRUE,
+                        placeholder = "blank = all genes")
+    })
+    shiny::observe({
+      ds <- state$active_dataset; shiny::req(ds)
+      update_gene_picker(session, "genes",
+                         choices = available_genes(ds))
     })
 
     # ---- Slot helpers ----------------------------------------------------
@@ -200,16 +208,27 @@ mod_imputation_server <- function(id, state) {
     })
 
     # ---- Gene picker (synced with shared state$selected_gene) ----------
+    # Server-side gene picker. See R/ui_components.R for rationale.
+    # Choices = smoothed-gene set first (when present), then the
+    # remaining dataset genes -- so the user typing "MS4A1" still
+    # finds it even before smoothing has run, and freshly-smoothed
+    # genes float to the top of the suggestion list.
     output$gene_picker_ui <- shiny::renderUI({
-      ds <- state$active_dataset; if (is.null(ds)) return(NULL)
-      ds_genes  <- available_genes(ds)
-      sm_genes  <- if (has_smoothed_results(state)) imp_slot()$results$genes else character()
-      # Smoothed genes first, then any others in the dataset.
+      gene_picker_input(ns("gene"), "Gene (visualised in both panes)",
+                        selected = state$selected_gene)
+    })
+    shiny::observe({
+      ds <- state$active_dataset; shiny::req(ds)
+      ds_genes <- available_genes(ds)
+      sm_genes <- if (has_smoothed_results(state))
+                    imp_slot()$results$genes
+                  else character()
       choices <- unique(c(sm_genes, ds_genes))
       current <- state$selected_gene %||% choices[1]
-      if (!current %in% choices) current <- choices[1]
-      shiny::selectizeInput(ns("gene"), "Gene (visualised in both panes)",
-                            choices = choices, selected = current)
+      if (!isTRUE(current %in% choices)) current <- choices[1]
+      update_gene_picker(session, "gene",
+                         choices  = choices,
+                         selected = current)
     })
     shiny::observeEvent(input$gene, {
       if (!is.null(input$gene) && nzchar(input$gene)) {

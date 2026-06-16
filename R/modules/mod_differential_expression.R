@@ -400,19 +400,57 @@ mod_differential_expression_server <- function(id, state) {
     }, striped = TRUE, hover = TRUE, rownames = FALSE, digits = 3)
 
     # ---- Inspect panel --------------------------------------------------
+    # Choices flip between "all dataset genes" (no DE results yet) and
+    # "DE result genes" (after a run + filters). Same shape as the
+    # Marker Investigation highlight picker.
     inspect_choices <- shiny::reactive({
       v <- view()
       if (is.null(v) || nrow(v) == 0L)
         return(available_genes(state$active_dataset))
       v$gene
     })
+
+    # Server-side gene picker. Avoids shipping the full 32k-gene
+    # vocabulary to the browser (`selectInput`'s warning: "consider
+    # using server-side selectize for massively improved performance").
+    # Render the empty picker once; an observer fills choices.
     output$inspect_ui <- shiny::renderUI({
-      choices <- inspect_choices()
-      current <- state$selected_gene
-      if (!current %in% choices) current <- choices[1]
-      shiny::selectizeInput(ns("inspect_gene"), "Gene",
-                            choices = choices, selected = current)
+      gene_picker_input(ns("inspect_gene"), "Gene",
+                        selected = state$selected_gene)
     })
+
+    # Fill choices on dataset change AND when DE results refresh (so
+    # the picker narrows to the hits after a successful run). We read
+    # `state$selected_gene` via `isolate()` so this observer doesn't
+    # re-fire on every shared-state gene push -- the lighter sync
+    # observer below handles selection drift.
+    shiny::observe({
+      ds <- state$active_dataset; shiny::req(ds)
+      choices <- inspect_choices()
+      cur <- shiny::isolate(state$selected_gene)
+      if (is.null(cur) || is.na(cur) || !nzchar(cur) ||
+          !isTRUE(cur %in% choices)) {
+        cur <- choices[1]
+      }
+      update_gene_picker(session, "inspect_gene",
+                         choices  = choices,
+                         selected = cur)
+    })
+
+    # Lightweight selection sync (matches the Explorer pattern): when
+    # another module pushes a gene, update only the selection; skip if
+    # the picker already shows it. Without the `identical()` guard the
+    # observers would self-loop with the `observeEvent(input$inspect_gene)`
+    # below and clear `state$selected_gene` via a transient empty
+    # selectize event.
+    shiny::observe({
+      g <- state$selected_gene
+      if (is.null(g) || is.na(g) || !nzchar(g)) return()
+      cur <- shiny::isolate(input$inspect_gene)
+      if (isTRUE(identical(cur, g))) return()
+      shiny::updateSelectizeInput(session, "inspect_gene", selected = g)
+    })
+
     shiny::observeEvent(input$inspect_gene, {
       if (!is.null(input$inspect_gene) && nzchar(input$inspect_gene)) {
         state$selected_gene <- input$inspect_gene
@@ -437,8 +475,10 @@ mod_differential_expression_server <- function(id, state) {
     output$feature_warning <- shiny::renderUI({
       g  <- state$selected_gene
       ds <- state$active_dataset
+      gene_label <- if (is.null(g) || is.na(g)) "" else g
       if (is.null(ds))             return(friendly_warning("No dataset loaded."))
-      if (!validate_gene(ds, g))   return(friendly_warning(sprintf("Gene '%s' is not available.", g %||% "")))
+      if (!isTRUE(validate_gene(ds, g)))
+        return(friendly_warning(sprintf("Gene '%s' is not available.", gene_label)))
       if (is.null(get_embedding(ds, state$selected_reduction)))
         return(friendly_warning("No usable reduction."))
       NULL
@@ -467,12 +507,25 @@ mod_differential_expression_server <- function(id, state) {
     output$violin_warning <- shiny::renderUI({
       g  <- state$selected_gene
       ds <- state$active_dataset
-      if (is.null(ds))           return(friendly_warning("No dataset loaded."))
-      if (!validate_gene(ds, g)) return(friendly_warning(sprintf("Gene '%s' is not available.", g %||% "")))
-      if (is.null(input$group_field))
+      # Belt-and-braces: `validate_gene()` now tolerates NA/NULL/empty
+      # genes (returns FALSE), but the picture for the user is the
+      # same -- show a friendly placeholder instead of crashing
+      # `renderUI` on `if (NA)`.
+      gene_label <- if (is.null(g) || is.na(g)) "" else g
+      if (is.null(ds))                  return(friendly_warning("No dataset loaded."))
+      if (!isTRUE(validate_gene(ds, g)))
+        return(friendly_warning(sprintf("Gene '%s' is not available.", gene_label)))
+      if (is.null(input$group_field) || !nzchar(input$group_field))
         return(friendly_warning("Pick a grouping field first."))
       lv <- group_levels()
-      if (!(input$group_1 %in% lv) || !(input$group_2 %in% lv))
+      # `input$group_1` / `input$group_2` may be NULL while the
+      # `group1_ui` / `group2_ui` renderers haven't emitted yet
+      # (especially right after a dataset change). `NULL %in% lv` is
+      # `logical(0)`, which makes the surrounding `if(...)` throw
+      # "missing value where TRUE/FALSE needed". Guard explicitly.
+      g1 <- input$group_1; g2 <- input$group_2
+      if (is.null(g1) || is.null(g2) || !nzchar(g1) || !nzchar(g2) ||
+          !isTRUE(g1 %in% lv) || !isTRUE(g2 %in% lv))
         return(friendly_warning("Pick two valid groups first."))
       NULL
     })

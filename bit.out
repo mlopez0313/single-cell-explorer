@@ -1,0 +1,11 @@
+* installing *source* package ‘bit’ ...
+** this is package ‘bit’ version ‘4.6.0’
+** package ‘bit’ successfully unpacked and MD5 sums checked
+** using staged installation
+** libs
+sh: 1: x86_64-conda-linux-gnu-cc: not found
+x86_64-conda-linux-gnu-cc -I"/home/exe0x/mnt/datapool/conda-envs/seurat/lib/R/include" -DNDEBUG   -DNDEBUG -D_FORTIFY_SOURCE=2 -O2 -isystem /home/exe0x/mnt/datapool/conda-envs/seurat/include -I/home/exe0x/mnt/datapool/conda-envs/seurat/include -Wl,-rpath-link,/home/exe0x/mnt/datapool/conda-envs/seurat/lib    -fpic  -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem /home/exe0x/mnt/datapool/conda-envs/seurat/include -fdebug-prefix-map=/home/conda/feedstock_root/build_artifacts/r-base-split_1773745610701/work=/usr/local/src/conda/r-base-4.5.3 -fdebug-prefix-map=/home/exe0x/mnt/datapool/conda-envs/seurat=/usr/local/src/conda-prefix  -c attrutil.c -o attrutil.o
+/bin/sh: 1: x86_64-conda-linux-gnu-cc: not found
+make: *** [/home/exe0x/mnt/datapool/conda-envs/seurat/lib/R/etc/Makeconf:204: attrutil.o] Error 127
+ERROR: compilation failed for package ‘bit’
+* removing ‘/home/exe0x/mnt/datapool/conda-envs/seurat/lib/R/library/bit’

@@ -26,6 +26,11 @@
 .cursor/
 terminals/
 
+# Install / build scratch dir auto-created by scripts/run_app.sh and
+# sce_install_for_demo() / sce_install_github_pkg() when the OS /tmp
+# is small but the app filesystem isn't.
+/.sce-install-scratch/
+
 # Local data (never commit datasets)
 /data/
 /datasets/

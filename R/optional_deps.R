@@ -72,8 +72,11 @@ require_optional <- function(pkgs, feature,
     "GitHub" = .require_optional_github_cmd(missing, repo)
   )
 
-  stop(sprintf(
-    "%s requires %s package%s '%s' to be installed.\n  Install with:  %s",
+  stop(sprintf(paste0(
+    "%s requires %s package%s '%s' to be installed.\n",
+    "  Install with:  %s\n",
+    "  Or install the full optional-feature tier in one go:\n",
+    "    Rscript scripts/setup_dev.R --full"),
     feature,
     source,
     if (length(missing) > 1L) "s" else "",

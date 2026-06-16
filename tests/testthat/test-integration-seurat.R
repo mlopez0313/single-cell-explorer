@@ -182,11 +182,15 @@ test_that("annotation / regulons / trajectory chain runs and bakes into dataset 
   ds2 <- apply_pseudotime_to_dataset(ds, tr, bins = 5L)
   ds3 <- apply_annotations_to_dataset(ds2, ann)
   new_cols <- setdiff(ds3$metadata_fields, ds$metadata_fields)
-  # Three new columns: pseudotime__*, pseudotime_bin__*, annotation__*
+  # Three new columns: pseudotime__*, pseudotime_bin__*, plus the
+  # annotation column (now named after the set's display name --
+  # identify it via the `annotation_set_id` attribute, not by prefix).
   expect_length(new_cols, 3L)
   expect_true(any(grepl("^pseudotime__",     new_cols)))
   expect_true(any(grepl("^pseudotime_bin__", new_cols)))
-  expect_true(any(grepl("^annotation__",     new_cols)))
+  ann_cols <- annotation_columns(ds3)
+  expect_true(length(ann_cols) >= 1L)
+  expect_true(any(ann_cols %in% new_cols))
 })
 
 test_that("marker_score warns when the cluster_field has only one cluster", {

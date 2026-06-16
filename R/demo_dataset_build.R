@@ -3,17 +3,31 @@
 # ----------------------------------------------------------------------------
 # This file is NOT exercised by the running app. It defines the developer-
 # facing helpers that prepare the `.rds` artifact loaded at runtime by
-# R/demo_dataset.R. Sources its inputs from one of three places:
+# R/demo_dataset.R. Sources its inputs from one of four places:
 #
-#   * `tenx_pbmc_data`     -- TENxPBMCData::TENxPBMCData("pbmc8k") (Bioc).
-#                             Counts-only SCE; we normalise / cluster /
-#                             reduce ourselves through Seurat.
+#   * `tenx_pbmc_10x_cdn`  -- DEFAULT. Downloads the canonical 10x
+#                             Genomics PBMC 8k filtered feature-barcode
+#                             matrix tarball from `cf.10xgenomics.com`,
+#                             caches it under
+#                             `tools::R_user_dir("single-cell-explorer",
+#                             "cache")/pbmc8k/`, extracts it, and feeds
+#                             the matrix dir to `Seurat::Read10X()`.
+#                             Only depends on Seurat + Matrix.
+#                             Replaced the legacy `tenx_pbmc_data`
+#                             source after Bioconductor's
+#                             `bioconductorhubs.blob.core.windows.net`
+#                             Azure storage account was retired in 2026.
+#   * `tenx_pbmc_data`     -- LEGACY / probably broken. Uses
+#                             `TENxPBMCData::TENxPBMCData("pbmc8k")` via
+#                             ExperimentHub; many resources still point
+#                             at the dead Azure URL above. Kept so users
+#                             can opt back in if Bioc fixes the entry.
 #   * `seurat_object_rds`  -- an existing Seurat `.rds` on disk that has
 #                             been preprocessed already (assays + reductions
 #                             + clusters). Cheapest path; no Seurat compute.
 #   * `tenx_dir`           -- a Cellranger filtered_feature_bc_matrix dir
-#                             (e.g. the published 10x PBMC 8k dataset).
-#                             We run the standard Seurat pipeline.
+#                             on local disk. Same code path as the CDN
+#                             source after extraction.
 #
 # Whichever source is used, the output is a `dataset_schema()`-compliant
 # list saved as an `.rds`. The runtime loader does NOT know which source
@@ -21,12 +35,19 @@
 #
 # Required (build-time only) packages:
 #
+#   tenx_pbmc_10x_cdn    : Seurat, SeuratObject, Matrix  (no Bioconductor)
 #   tenx_pbmc_data       : Seurat, SeuratObject, TENxPBMCData, SingleCellExperiment, Matrix
 #   seurat_object_rds    : SeuratObject (already enforced by .seurat_to_dataset)
 #   tenx_dir             : Seurat, SeuratObject, Matrix
 #
 # The user-facing CLI lives at scripts/build_pbmc8k_demo.R.
 # ============================================================================
+
+# 10x Genomics canonical CDN URL for the PBMC 8k filtered feature-barcode
+# matrix (Chromium v2 chemistry, GRCh38). Served via Cloudflare; ~37 MB
+# tar.gz; ETag-stable since 2017. Don't rely on this never moving --
+# every download path checks the HTTP status before extracting.
+.PBMC8K_10X_CDN_URL <- "https://cf.10xgenomics.com/samples/cell-exp/2.1.0/pbmc8k/pbmc8k_filtered_gene_bc_matrices.tar.gz"
 
 #' Build and save the prepared PBMC 8k demo artifact.
 #'
@@ -65,7 +86,8 @@
 #'                   build.
 #' @return invisibly returns `out_path`.
 build_pbmc8k_demo <- function(out_path        = demo_dataset_path(),
-                              source          = c("tenx_pbmc_data",
+                              source          = c("tenx_pbmc_10x_cdn",
+                                                  "tenx_pbmc_data",
                                                   "seurat_object_rds",
                                                   "tenx_dir"),
                               input_path      = NULL,
@@ -81,6 +103,7 @@ build_pbmc8k_demo <- function(out_path        = demo_dataset_path(),
   tick(0.02, sprintf("Loading source: %s", source))
   obj <- switch(
     source,
+    "tenx_pbmc_10x_cdn"  = .build_load_tenx_pbmc_10x_cdn(progress = tick),
     "tenx_pbmc_data"     = .build_load_tenx_pbmc_data(progress = tick),
     "tenx_dir"           = .build_load_tenx_dir(input_path),
     "seurat_object_rds"  = .build_load_seurat_rds(input_path)
@@ -172,6 +195,130 @@ build_pbmc8k_demo <- function(out_path        = demo_dataset_path(),
 }
 
 # ---- Source loaders -------------------------------------------------------
+
+# ---- 10x CDN PBMC 8k source ----------------------------------------------
+#
+# Downloads the PBMC 8k filtered feature-barcode matrix tarball from
+# `cf.10xgenomics.com`, caches the tarball + extracted matrix dir under
+# `tools::R_user_dir("single-cell-explorer", "cache")/pbmc8k/` so
+# subsequent builds reuse them, and returns a freshly-loaded Seurat
+# object via the same code path as the on-disk `tenx_dir` source.
+#
+# Caches both:
+#   * `<cache>/pbmc8k_filtered_gene_bc_matrices.tar.gz`  -- ~37 MB
+#   * `<cache>/extracted/`                                -- ~30 MB
+#
+# Cache hits skip the network entirely; corrupt downloads (wrong size
+# or wrong tar header) are removed and retried once.
+.build_load_tenx_pbmc_10x_cdn <- function(progress = function(...) NULL) {
+  require_optional(c("Seurat", "SeuratObject", "Matrix"),
+                   feature = "PBMC 8k demo build (10x CDN source)")
+  cache_dir <- .pbmc8k_cdn_cache_dir()
+  if (!dir.exists(cache_dir)) {
+    dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  tarball <- file.path(cache_dir, "pbmc8k_filtered_gene_bc_matrices.tar.gz")
+  matrix_dir <- .pbmc8k_ensure_extracted(tarball,
+                                         extract_root = file.path(cache_dir, "extracted"),
+                                         progress     = progress)
+  progress(0.12, sprintf("Reading 10x matrix from %s",
+                         normalizePath(matrix_dir, mustWork = FALSE)))
+  counts <- Seurat::Read10X(data.dir = matrix_dir)
+  Seurat::CreateSeuratObject(counts = counts, project = "pbmc8k_demo",
+                             min.cells = 3, min.features = 200)
+}
+
+# Resolve the on-disk cache directory for the 10x CDN source. Honours
+# `SCE_DEMO_CACHE_DIR` for tests / power users; otherwise falls back to
+# `tools::R_user_dir(..., "cache")/pbmc8k`.
+.pbmc8k_cdn_cache_dir <- function() {
+  override <- Sys.getenv("SCE_DEMO_CACHE_DIR", unset = "")
+  if (nzchar(override)) return(file.path(override, "pbmc8k"))
+  base <- tryCatch(tools::R_user_dir("single-cell-explorer", which = "cache"),
+                   error = function(e) tempdir())
+  file.path(base, "pbmc8k")
+}
+
+# Download + extract idempotently. Returns the path to the directory
+# containing `matrix.mtx{,.gz}` -- which is what Seurat::Read10X wants.
+.pbmc8k_ensure_extracted <- function(tarball, extract_root,
+                                     progress = function(...) NULL) {
+  if (!.pbmc8k_tarball_ok(tarball)) {
+    if (file.exists(tarball)) {
+      message("Removing stale / corrupt PBMC 8k tarball at ", tarball)
+      unlink(tarball)
+    }
+    progress(0.06, sprintf("Downloading PBMC 8k from 10x CDN (~37 MB)"))
+    .pbmc8k_download(.PBMC8K_10X_CDN_URL, tarball)
+    if (!.pbmc8k_tarball_ok(tarball)) {
+      stop("PBMC 8k tarball at ", tarball,
+           " is still invalid after download (size mismatch or unreadable). ",
+           "Delete the file and retry, or pre-download manually from ",
+           .PBMC8K_10X_CDN_URL, call. = FALSE)
+    }
+  } else {
+    progress(0.06, "Reusing cached PBMC 8k tarball")
+  }
+
+  if (!dir.exists(extract_root)) {
+    dir.create(extract_root, recursive = TRUE, showWarnings = FALSE)
+  }
+  matrix_dir <- .pbmc8k_find_matrix_dir(extract_root)
+  if (is.null(matrix_dir)) {
+    progress(0.10, "Extracting PBMC 8k matrix")
+    rc <- utils::untar(tarball, exdir = extract_root)
+    if (!identical(as.integer(rc), 0L)) {
+      stop("Failed to untar ", tarball, " (utils::untar returned ", rc, ")",
+           call. = FALSE)
+    }
+    matrix_dir <- .pbmc8k_find_matrix_dir(extract_root)
+    if (is.null(matrix_dir)) {
+      stop("Extracted PBMC 8k tarball but couldn't locate the matrix ",
+           "directory under ", extract_root,
+           ". Inspect the directory layout manually.", call. = FALSE)
+    }
+  }
+  matrix_dir
+}
+
+# `download.file` with a few practical defaults. Honours
+# `getOption("timeout")` if the user set it, else bumps to 300s for
+# the 37 MB transfer (R's default 60s is too short on slow links).
+.pbmc8k_download <- function(url, dest) {
+  prev_timeout <- getOption("timeout", default = 60)
+  options(timeout = max(prev_timeout, 300))
+  on.exit(options(timeout = prev_timeout), add = TRUE)
+  rc <- utils::download.file(url, destfile = dest, mode = "wb", quiet = FALSE)
+  if (!identical(as.integer(rc), 0L)) {
+    stop("download.file(", url, ") returned exit code ", rc, call. = FALSE)
+  }
+}
+
+# A tarball is acceptable iff it exists and has the expected size band
+# (well above any half-downloaded blob, well below a runaway). The 10x
+# PBMC 8k tarball has been ~37.5 MB since 2017; allow a generous band.
+.pbmc8k_tarball_ok <- function(path) {
+  if (!file.exists(path)) return(FALSE)
+  size <- file.info(path)$size
+  isTRUE(size > 25 * 1024^2 && size < 60 * 1024^2)
+}
+
+# Walk an extracted directory looking for a dir containing the standard
+# 10x matrix triplet (`matrix.mtx{,.gz}`, `barcodes.tsv{,.gz}`,
+# `genes.tsv{,.gz}` or `features.tsv{,.gz}`). Returns the first match
+# (PBMC 8k tarball has only one) or NULL if none is found.
+.pbmc8k_find_matrix_dir <- function(root) {
+  if (!dir.exists(root)) return(NULL)
+  candidates <- list.dirs(root, recursive = TRUE)
+  for (d in candidates) {
+    files <- list.files(d)
+    has_matrix <- any(grepl("^matrix\\.mtx(\\.gz)?$", files))
+    has_bc     <- any(grepl("^barcodes\\.tsv(\\.gz)?$", files))
+    has_genes  <- any(grepl("^(genes|features)\\.tsv(\\.gz)?$", files))
+    if (has_matrix && has_bc && has_genes) return(d)
+  }
+  NULL
+}
 
 .build_load_tenx_pbmc_data <- function(progress = function(...) NULL) {
   require_optional(c("TENxPBMCData", "SingleCellExperiment",

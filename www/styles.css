@@ -912,6 +912,109 @@ hr { border-color: var(--sce-divider); margin: var(--sce-sp-4) 0; }
   font-size: 13px;
 }
 
+/* ----- 8. Console drawer ------------------------------------------------- */
+/* Fixed vertical tab on the right edge; clicking opens a slide-in Bootstrap
+ * offcanvas with a live tail of whatever log file in `sce_log_dir()` is
+ * most active. Visually inverted (dark on light app) to read as a terminal. */
+
+.app-console-toggle {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: 1045;                /* above app content; offcanvas itself is 1050 */
+
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+
+  padding: 12px 6px;
+  border: 1px solid var(--sce-border);
+  border-right: 0;
+  border-radius: 8px 0 0 8px;
+  background: #1f2330;
+  color: #e6e9ef;
+  font: 600 11px/1 var(--bs-font-sans-serif);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+
+  cursor: pointer;
+  box-shadow: -2px 0 8px rgba(15, 23, 42, 0.12);
+  transition: background-color 120ms ease, transform 120ms ease;
+}
+.app-console-toggle:hover    { background: #2a2f3e; }
+.app-console-toggle:focus    { outline: 2px solid var(--sce-accent); outline-offset: 2px; }
+
+.app-console-toggle__icon  { font-size: 14px; }
+.app-console-toggle__label { writing-mode: vertical-rl; transform: rotate(180deg); }
+
+.app-console {
+  width: min(560px, 90vw);
+  background: #1e2230;
+  color: #e6e9ef;
+  border-left: 1px solid #0c0f17;
+  box-shadow: -8px 0 24px rgba(15, 23, 42, 0.25);
+}
+
+.app-console__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sce-sp-3);
+  border-bottom: 1px solid #2d3242;
+  padding: 12px 14px;
+}
+.app-console__title {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 600; margin: 0;
+  color: #f3f4f8;
+}
+.app-console__controls {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-left: auto;
+}
+.app-console__controls .form-control,
+.app-console__controls .form-select,
+.app-console__controls .shiny-input-container {
+  margin-bottom: 0;
+}
+.app-console__controls .form-select {
+  background-color: #2a2f3e;
+  border-color: #3a4055;
+  color: #e6e9ef;
+  font-size: 12px;
+  padding: 4px 28px 4px 8px;
+}
+.app-console__btn  { padding: 4px 8px; line-height: 1; }
+.app-console__close { margin-left: 4px; }
+
+.app-console__meta {
+  padding: 6px 14px;
+  border-bottom: 1px solid #2d3242;
+  font-size: 11px;
+  color: #9aa3b8;
+  font-variant-numeric: tabular-nums;
+}
+.app-console__hint {
+  color: #9aa3b8; font-size: 12px; font-style: italic;
+}
+
+.app-console__body {
+  padding: 10px 14px 14px;
+  background: #14161f;
+}
+.app-console__pre {
+  margin: 0;
+  background: transparent;
+  color: #d3d7e0;
+  font: 12px / 1.45 var(--bs-font-monospace, "JetBrains Mono", Menlo,
+                       Consolas, "Liberation Mono", monospace);
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 0;
+  padding: 0;
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
   .app-shell { flex-direction: column; }
@@ -920,4 +1023,5 @@ hr { border-color: var(--sce-divider); margin: var(--sce-sp-4) 0; }
     border-right: 0; border-bottom: 1px solid var(--sce-border);
   }
   .app-workspace { padding: var(--sce-sp-5) var(--sce-sp-5) var(--sce-sp-7); }
+  .app-console-toggle__label { display: none; }   /* tab is icon-only on narrow */
 }

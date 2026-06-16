@@ -238,9 +238,11 @@ mod_annotation_server <- function(id, state) {
 
     output$cluster_field_ui <- shiny::renderUI({
       fields <- available_metadata_fields(state$active_dataset)
-      # Hide annotation-provenance columns from the picker so users don't
-      # recursively annotate their own annotations.
-      fields <- fields[!grepl("^annotation__", fields)]
+      # Hide annotation-produced columns from the picker so users don't
+      # recursively annotate their own annotations. Detected via the
+      # `annotation_set_id` attribute (attribute-keyed, not name-keyed,
+      # so renaming a set doesn't unhide its column).
+      fields <- setdiff(fields, annotation_columns(state$active_dataset))
       active <- get_active_annotation(state)
       sel <- active$cluster_field_used %||%
              state$selected_metadata_field %||% fields[1]
@@ -336,6 +338,39 @@ mod_annotation_server <- function(id, state) {
 
     # ---- Run engine ---------------------------------------------------
 
+    # Internal worker that actually invokes the engine + records the
+    # set. Split out so we can call it directly *and* after the
+    # "Install + run" install flow completes without duplicating logic.
+    .run_engine_now <- function(eng, params, cur_id, cur_set) {
+      new_set <- tryCatch(
+        run_annotation_engine(eng, state$active_dataset, state, params,
+                              set_id        = cur_id,
+                              set_name      = cur_set$name,
+                              description   = cur_set$description,
+                              parent_set_id = cur_set$parent_set_id,
+                              is_demo       = isTRUE(cur_set$is_demo)),
+        error = function(e) e)
+      if (inherits(new_set, "error")) {
+        push_message(state, sprintf("Annotation engine failed: %s",
+                                    conditionMessage(new_set)), "error")
+        return(invisible(NULL))
+      }
+      new_set$created_at <- cur_set$created_at %||% Sys.time()
+      new_set$modified_at <- Sys.time()
+      add_annotation_set(state, new_set)
+      push_message(state, sprintf(
+        "Ran '%s' on %d clusters of '%s'.",
+        eng, new_set$n_clusters_at_creation %||% 0L,
+        new_set$cluster_field_used %||% "?"), "success")
+    }
+
+    # Per-session holding cell for the args of a `run_engine` click
+    # that got deferred while we install a missing GitHub package
+    # (Azimuth today). Cleared by both the confirm handler (after a
+    # successful re-run) and the cancel handler.
+    pending_run <- shiny::reactiveValues(eng = NULL, params = NULL,
+                                         cur_id = NULL, cur_set = NULL)
+
     shiny::observeEvent(input$run_engine, {
       if (is.null(state$active_dataset)) {
         push_message(state, "Load a dataset first.", "warning"); return()
@@ -357,27 +392,154 @@ mod_annotation_server <- function(id, state) {
                               min_score     = input$min_score %||% 0),
         list(cluster_field = input$cluster_field)
       )
-      new_set <- tryCatch(
-        run_annotation_engine(eng, state$active_dataset, state, params,
-                              set_id        = cur_id,
-                              set_name      = cur_set$name,
-                              description   = cur_set$description,
-                              parent_set_id = cur_set$parent_set_id,
-                              is_demo       = isTRUE(cur_set$is_demo)),
-        error = function(e) e)
-      if (inherits(new_set, "error")) {
-        push_message(state, sprintf("Annotation engine failed: %s",
-                                    conditionMessage(new_set)), "error")
-        return()
+
+      # GitHub-dep gating: if the engine declares any GitHub deps
+      # (`ANNOTATION_ENGINE_GITHUB_DEPS()[[eng]]`) that aren't yet
+      # installed, defer the engine run, stash the call args in
+      # `pending_run`, and show a confirmation modal. The "Install
+      # + run" branch (`engine_install_confirm`) installs in-app
+      # and then re-invokes `.run_engine_now()` with the stashed
+      # args. The "Cancel" branch just clears the stash.
+      missing_gh <- engine_missing_github_deps(eng)
+      if (length(missing_gh) > 0L) {
+        pending_run$eng     <- eng
+        pending_run$params  <- params
+        pending_run$cur_id  <- cur_id
+        pending_run$cur_set <- cur_set
+        shiny::showModal(shiny::modalDialog(
+          title     = sprintf("Install %s?",
+                              paste(names(missing_gh), collapse = ", ")),
+          easyClose = FALSE,
+          size      = "m",
+          shiny::p(sprintf(
+            paste0("The '%s' annotation engine needs the following GitHub ",
+                   "package%s installed first:"),
+            eng, if (length(missing_gh) == 1L) "" else "s")),
+          shiny::tags$ul(
+            class = "req-list",
+            lapply(seq_along(missing_gh), function(i)
+              shiny::tags$li(sprintf("%s (%s)",
+                                     names(missing_gh)[i],
+                                     unname(missing_gh)[i])))),
+          shiny::p(class = "helper-text",
+                   paste0("This is a one-time install. On a fresh machine ",
+                          "expect 5-15 minutes (compiles Seurat / BPCells ",
+                          "dependencies from source if absent). The ",
+                          "reference data Azimuth needs at run time is ",
+                          "downloaded separately on first prediction ",
+                          "(~250 MB per reference).")),
+          footer = shiny::tagList(
+            shiny::actionButton(ns("engine_install_cancel"),
+                                "Cancel",
+                                class = "btn btn-default"),
+            shiny::actionButton(ns("engine_install_confirm"),
+                                "Install + run",
+                                class = "btn btn-primary")
+          )
+        ))
+        return()  # Wait for the modal response.
       }
-      # Preserve created_at; bump modified_at.
-      new_set$created_at <- cur_set$created_at %||% Sys.time()
-      new_set$modified_at <- Sys.time()
-      add_annotation_set(state, new_set)
+
+      .run_engine_now(eng, params, cur_id, cur_set)
+    })
+
+    # Modal: user cancelled. Just drop the stash and remove the modal.
+    shiny::observeEvent(input$engine_install_cancel, {
+      shiny::removeModal()
+      pending_run$eng <- NULL; pending_run$params <- NULL
+      pending_run$cur_id <- NULL; pending_run$cur_set <- NULL
+    })
+
+    # Modal: user confirmed. Install each missing GitHub dep for the
+    # stashed engine, then re-invoke `.run_engine_now()`. Same logging
+    # contract as the demo-dataset install: a single timestamped log
+    # file captures install + verify, the workspace message names it,
+    # and per-package compile output (Azimuth has a deep dep tree --
+    # Seurat, BPCells, SeuratData) is preserved on disk.
+    shiny::observeEvent(input$engine_install_confirm, {
+      shiny::removeModal()
+      eng     <- pending_run$eng
+      params  <- pending_run$params
+      cur_id  <- pending_run$cur_id
+      cur_set <- pending_run$cur_set
+      if (is.null(eng)) return()  # nothing to do (defensive)
+
+      missing_gh <- engine_missing_github_deps(eng)
+      if (length(missing_gh) == 0L) {
+        # Race: the user installed it elsewhere between modal open and
+        # confirm. Just run.
+        .run_engine_now(eng, params, cur_id, cur_set)
+        pending_run$eng <- NULL; return()
+      }
+
+      log_path <- sce_open_log(sprintf("engine_install_%s", eng))
       push_message(state, sprintf(
-        "Ran '%s' on %d clusters of '%s'.",
-        eng, new_set$n_clusters_at_creation %||% 0L,
-        new_set$cluster_field_used %||% "?"), "success")
+        "Installing %s from GitHub (logging to %s)",
+        paste(names(missing_gh), collapse = ", "), log_path), "info")
+
+      install_ok <- tryCatch({
+        shiny::withProgress(
+          message = sprintf("Installing %s for '%s' engine",
+                            paste(names(missing_gh), collapse = ", "),
+                            eng),
+          detail  = "first-run install (~5-15 min) -- output streaming to log",
+          value   = 0,
+          sce_run_with_log(
+            {
+              # Install each missing package sequentially so a failure
+              # in one stops the chain immediately (vs swallowing it
+              # and surfacing only the last error).
+              for (i in seq_along(missing_gh)) {
+                pkg  <- names(missing_gh)[i]
+                spec <- unname(missing_gh)[i]
+                base <- (i - 1L) / length(missing_gh)
+                step <- 1.0 / length(missing_gh)
+                sce_install_github_pkg(
+                  pkg, spec,
+                  progress = function(fraction, detail = NULL) {
+                    shiny::setProgress(value  = base + step * fraction,
+                                       detail = detail)
+                  })
+              }
+              TRUE
+            },
+            log_path = log_path))
+        TRUE
+      }, error = function(e) {
+        msg <- conditionMessage(e)
+        summary <- sce_log_summary(log_path, max_lines = 10L)
+        tail_hint <- if (length(summary))
+          paste0("\nKey log lines:\n  - ",
+                 paste(summary, collapse = "\n  - "))
+        else ""
+        if (.is_lazy_load_corruption(msg)) {
+          push_message(state, paste0(
+            "Engine install aborted: a required package's on-disk files ",
+            "were modified after this Shiny session started, so R's ",
+            "in-memory lazy-load cache no longer matches the disk. ",
+            "Quit the app (Ctrl+C in the terminal), restart it with ",
+            "`shiny::runApp(\".\")`, and click 'Run engine' again.\n",
+            sprintf("Full install log: %s%s", log_path, tail_hint)),
+            "warning")
+        } else {
+          push_message(state, sprintf(paste0(
+            "%s install failed: %s\nFull install log: %s%s"),
+            paste(names(missing_gh), collapse = ", "),
+            msg, log_path, tail_hint),
+            "warning")
+        }
+        FALSE
+      })
+
+      pending_run$eng <- NULL; pending_run$params <- NULL
+      pending_run$cur_id <- NULL; pending_run$cur_set <- NULL
+
+      if (!install_ok) return()
+
+      push_message(state, sprintf(
+        "%s installed. Running '%s' engine...",
+        paste(names(missing_gh), collapse = ", "), eng), "success")
+      .run_engine_now(eng, params, cur_id, cur_set)
     })
 
     shiny::observeEvent(input$apply_edits, {

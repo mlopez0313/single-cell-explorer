@@ -374,14 +374,20 @@ mod_pathway_analysis_server <- function(id, state) {
       shiny::div(class = "gene-list", paste(g, collapse = ", "))
     })
 
+    # Server-side gene picker. See R/ui_components.R for rationale.
+    # Choices are dataset-derived (full gene list if no pathway hit);
+    # `update_gene_picker()` re-pushes them whenever the overlap set
+    # changes.
     output$gene_picker_ui <- shiny::renderUI({
-      g <- overlap_genes_of()
+      gene_picker_input(ns("pick_gene"), "Gene")
+    })
+    shiny::observe({
+      g        <- overlap_genes_of()
       ds_genes <- available_genes(state$active_dataset)
-      # Prefer overlap genes that exist in the dataset (so FeaturePlot works).
       pickable <- intersect(g, ds_genes)
       if (length(pickable) == 0L) pickable <- ds_genes
-      shiny::selectInput(ns("pick_gene"), "Gene",
-                         choices = pickable,
+      update_gene_picker(session, "pick_gene",
+                         choices  = pickable,
                          selected = utils::head(pickable, 1))
     })
 

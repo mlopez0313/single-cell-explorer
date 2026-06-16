@@ -192,41 +192,119 @@ test_that("set_active_annotation rejects unknown ids", {
 
 # ---- Apply to dataset metadata ------------------------------------------
 
-test_that("apply_annotations_to_dataset writes a provenance-named column", {
+test_that("apply_annotations_to_dataset writes a name-driven column", {
   setup <- mock_state_with_dataset(n_cells = 100)
   state <- setup$state; ds <- setup$dataset
   set <- with_state(state, run_annotation_engine(
     "marker_score", ds, state,
     params = list(cluster_field = "cluster"),
-    set_id = "ms_apply"))
+    set_id   = "ms_apply",
+    set_name = "Azimuth L2"))
 
   cols_before <- names(ds$cell_data)
   ds2 <- apply_annotations_to_dataset(ds, set)
   new_cols <- setdiff(names(ds2$cell_data), cols_before)
   expect_length(new_cols, 1L)
-  expect_match(new_cols, "^annotation__ms_apply__\\d{4}_\\d{2}_\\d{2}$")
+  # Sanitized from "Azimuth L2" -> "azimuth_l2"
+  expect_identical(new_cols, "azimuth_l2")
   expect_true(new_cols %in% ds2$metadata_fields)
 
   # Generic cell_type is left untouched (mock had one already)
   expect_identical(ds$cell_data$cell_type, ds2$cell_data$cell_type)
 
-  # Provenance attributes attached
-  expect_identical(attr(ds2$cell_data[[new_cols]], "annotation_set_id"), "ms_apply")
+  # Provenance attributes attached -- still keyed by set_id, regardless
+  # of the surface column name.
+  expect_identical(attr(ds2$cell_data[[new_cols]], "annotation_set_id"),   "ms_apply")
+  expect_identical(attr(ds2$cell_data[[new_cols]], "annotation_set_name"), "Azimuth L2")
   expect_identical(attr(ds2$cell_data[[new_cols]], "annotation_engine_id"),
                    "marker_score")
   expect_identical(attr(ds2$cell_data[[new_cols]], "schema_version"),
                    "annotation_v1")
 })
 
-test_that("apply_annotations_to_dataset refuses to overwrite an existing column", {
-  setup <- mock_state_with_dataset(n_cells = 50)
+test_that("apply_annotations_to_dataset re-applies under the new name after a rename", {
+  setup <- mock_state_with_dataset(n_cells = 60)
   state <- setup$state; ds <- setup$dataset
   set <- with_state(state, run_annotation_engine(
     "manual", ds, state,
     params = list(cluster_field = "cluster", labels = list("0" = "T")),
-    set_id = "noverwrite"))
+    set_id   = "rename_set",
+    set_name = "first_name"))
+
   ds2 <- apply_annotations_to_dataset(ds, set)
-  expect_error(apply_annotations_to_dataset(ds2, set), "already exists")
+  expect_true("first_name" %in% names(ds2$cell_data))
+
+  # Rename the set and re-apply. The previous column ("first_name")
+  # must go away; a new column ("second_name") must appear, carrying
+  # the same `annotation_set_id` attribute.
+  set$name <- "second_name"
+  ds3 <- apply_annotations_to_dataset(ds2, set)
+  expect_false("first_name" %in% names(ds3$cell_data))
+  expect_true("second_name" %in% names(ds3$cell_data))
+  expect_identical(attr(ds3$cell_data$second_name, "annotation_set_id"),
+                   "rename_set")
+  # metadata_fields tracks the rename too.
+  expect_false("first_name" %in% ds3$metadata_fields)
+  expect_true("second_name" %in% ds3$metadata_fields)
+})
+
+test_that("apply_annotations_to_dataset disambiguates against unrelated columns with the same desired name", {
+  setup <- mock_state_with_dataset(n_cells = 60)
+  state <- setup$state; ds <- setup$dataset
+  set_a <- with_state(state, run_annotation_engine(
+    "manual", ds, state,
+    params = list(cluster_field = "cluster", labels = list("0" = "T")),
+    set_id   = "set_a",
+    set_name = "cell_labels"))
+  set_b <- with_state(state, run_annotation_engine(
+    "manual", ds, state,
+    params = list(cluster_field = "cluster", labels = list("0" = "B")),
+    set_id   = "set_b",
+    set_name = "cell_labels"))
+
+  ds2 <- apply_annotations_to_dataset(ds,  set_a)
+  ds3 <- apply_annotations_to_dataset(ds2, set_b)
+  expect_true("cell_labels"   %in% names(ds3$cell_data))
+  expect_true("cell_labels_2" %in% names(ds3$cell_data))
+  expect_identical(attr(ds3$cell_data$cell_labels,   "annotation_set_id"), "set_a")
+  expect_identical(attr(ds3$cell_data$cell_labels_2, "annotation_set_id"), "set_b")
+})
+
+test_that("apply_annotations_to_dataset refuses to write the literal name 'cell_type'", {
+  setup <- mock_state_with_dataset(n_cells = 30)
+  state <- setup$state; ds <- setup$dataset
+  set <- with_state(state, run_annotation_engine(
+    "manual", ds, state,
+    params = list(cluster_field = "cluster", labels = list("0" = "T")),
+    set_id   = "ct_attempt",
+    set_name = "cell_type"))
+  expect_error(apply_annotations_to_dataset(ds, set),
+               regexp = "cell_type")
+})
+
+test_that(".annotation_col_basename sanitizes free-form names correctly", {
+  expect_identical(.annotation_col_basename("Azimuth L2"),        "azimuth_l2")
+  expect_identical(.annotation_col_basename("Set 12:34:56"),      "set_12_34_56")
+  expect_identical(.annotation_col_basename("T-cell subtypes!"),  "t_cell_subtypes")
+  expect_identical(.annotation_col_basename("  spaced  out  "),   "spaced_out")
+  expect_identical(.annotation_col_basename("123_starts_digit"),  "x_123_starts_digit")
+  expect_identical(.annotation_col_basename(""),                  "annotation")
+  expect_identical(.annotation_col_basename(NULL),                "annotation")
+  expect_identical(.annotation_col_basename("___"),               "annotation")
+})
+
+test_that("annotation_columns() finds applied columns by attribute, not by name", {
+  setup <- mock_state_with_dataset(n_cells = 30)
+  state <- setup$state; ds <- setup$dataset
+  expect_identical(annotation_columns(ds), character())
+
+  set <- with_state(state, run_annotation_engine(
+    "manual", ds, state,
+    params = list(cluster_field = "cluster", labels = list("0" = "T")),
+    set_id   = "ac_check",
+    set_name = "fancy_labels"))
+  ds2 <- apply_annotations_to_dataset(ds, set)
+  expect_identical(annotation_columns(ds2), "fancy_labels")
 })
 
 # ---- Phase-2 engines explicitly absent ----------------------------------
@@ -298,10 +376,51 @@ test_that("annotation engine_version is propagated to dataset metadata attrs", {
     params = list(cluster_field = "cluster"),
     set_id = "version_attr"))
   ds2 <- apply_annotations_to_dataset(ds, set)
-  new_col <- grep("^annotation__version_attr__", names(ds2$cell_data),
-                  value = TRUE)
+  # Look up the new column by `annotation_set_id` attribute -- the
+  # column is named after the set's display name now, not by the id.
+  new_col <- annotation_columns(ds2)
+  new_col <- new_col[vapply(new_col,
+    function(c) identical(attr(ds2$cell_data[[c]], "annotation_set_id"),
+                          "version_attr"),
+    logical(1))]
+  expect_length(new_col, 1L)
   expect_identical(attr(ds2$cell_data[[new_col]], "annotation_engine_version"),
                    "marker_score_v1.0.0")
   expect_identical(attr(ds2$cell_data[[new_col]], "schema_version"),
                    "annotation_v1")
 })
+
+# ---- Engine GitHub-dep gating ----------------------------------------------
+# `engine_missing_github_deps()` powers the annotation module's
+# "Install + run" confirmation modal. Engines that need *no* GitHub
+# package must return character(); engines with GitHub deps must
+# return a named character vector keyed by package name (so the modal
+# can render `Package (owner/repo)` correctly).
+
+test_that("ANNOTATION_ENGINE_GITHUB_DEPS lists Azimuth and nothing else by default", {
+  deps <- ANNOTATION_ENGINE_GITHUB_DEPS()
+  expect_true(is.list(deps))
+  expect_true("azimuth" %in% names(deps))
+  expect_identical(deps$azimuth, c(Azimuth = "satijalab/azimuth"))
+})
+
+test_that("engine_missing_github_deps returns character() for engines without GitHub deps", {
+  for (eng in c("manual", "marker_score", "singler", "celltypist")) {
+    expect_identical(engine_missing_github_deps(eng), character(),
+                     info = sprintf("engine = '%s'", eng))
+  }
+})
+
+test_that("engine_missing_github_deps returns Azimuth when Azimuth is absent", {
+  skip_if(has_optional("Azimuth"),
+          "Azimuth is installed in this environment; the missing-deps path is not exercised here")
+  missing <- engine_missing_github_deps("azimuth")
+  expect_identical(missing, c(Azimuth = "satijalab/azimuth"))
+})
+
+test_that("engine_missing_github_deps returns empty when Azimuth is installed", {
+  skip_if_not(has_optional("Azimuth"),
+              "Azimuth is not installed in this environment; the installed-deps path is not exercised here")
+  expect_identical(engine_missing_github_deps("azimuth"), character())
+})
+

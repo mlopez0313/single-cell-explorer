@@ -1,0 +1,112 @@
+# ----------------------------------------------------------------------
+# Conda env spec for single-cell-explorer (R + system libs only).
+#
+# Intent
+# ------
+# Provide R 4.5.x and the *system* dependencies the CRAN/Bioconductor
+# stack needs to compile from source (HDF5, libxml2, cairo, glpk, ...).
+# R packages themselves are installed from CRAN/Bioc inside R via
+# `scripts/setup_dev.R` or the app's "Load demo dataset -> Install"
+# flow -- NOT from conda. Mixing conda r-* / bioconductor-* packages
+# with BiocManager::install() invites lazy-load corruption and
+# version-skew problems we have already debugged once.
+#
+# Create
+# ------
+#   mamba env create -f conda/environment.yml \
+#       -p /home/exe0x/mnt/datapool/conda-envs/single-cell-explorer
+#
+#   # or, named (default envs_dirs):
+#   mamba env create -f conda/environment.yml -n single-cell-explorer
+#
+# Activate, then install R packages
+# ---------------------------------
+#   conda activate single-cell-explorer        # or `conda activate <path>`
+#   Rscript scripts/setup_dev.R --demo         # core + PBMC 8k build deps
+#
+# Updating
+# --------
+#   mamba env update -f conda/environment.yml -p <prefix> --prune
+# ----------------------------------------------------------------------
+
+name: single-cell-explorer
+
+channels:
+  - conda-forge
+
+dependencies:
+  # --- R itself --------------------------------------------------------
+  - r-base=4.5.*
+
+  # --- Toolchain (compilers + build glue) ------------------------------
+  # The conda-forge r-base package configures R to use the
+  # `x86_64-conda-linux-gnu-*` wrappers shipped by these packages.
+  # Without them every C/C++/Fortran package fails to compile.
+  - gcc_linux-64
+  - gxx_linux-64
+  - gfortran_linux-64
+  - make
+  - pkg-config
+
+  # --- System libraries the Bioc / Seurat stack links against ----------
+  # HDF5: rhdf5, Rhdf5lib, HDF5Array, h5mread, hdf5r.
+  #
+  # Pinned to the 1.14 line because `hdf5r` (CRAN 1.3.12, the version
+  # Azimuth's dep chain pulls via SeuratDisk) does NOT yet compile
+  # against HDF5 2.x -- the 2.0 release dropped `H5FD_family_init()`
+  # and a handful of other symbols `hdf5r`'s bundled wrappers still
+  # reference. conda-forge's `hdf5` jumped to 2.x in early 2026, so
+  # without a pin a fresh env gets the new major and `hdf5r` fails
+  # with:
+  #   Wrapper_auto_H5FDfamily.c: implicit declaration of function
+  #     'H5FD_family_init'
+  # 1.14 is the upstream "stable" / LTS branch; safe to use until
+  # `hdf5r` ships a 2.x-aware release.
+  - hdf5=1.14.*
+  # XML: R `XML`, `xml2`, `restfulr` (-> `rtracklayer` -> Signac).
+  #
+  # conda-forge split libxml2 starting at 2.15: the `libxml2` package
+  # now ships only the runtime tools (`xmllint`, `xmlcatalog`) and
+  # depends on the SO `libxml2-16`. Build-time bits -- headers,
+  # `xml2-config`, `libxml-2.0.pc` -- moved to `libxml2-devel`.
+  # Without the latter, R's `XML` configure fails with
+  # `checking for xml2-config... no / Cannot find xml2-config` and
+  # the entire Signac/Azimuth dependency tree (`restfulr` ->
+  # `rtracklayer` -> `BSgenome`/`GenomicFeatures`/`ensembldb`/
+  # `TFBSTools`/`EnsDb.Hsapiens.v86`) fails to build.
+  - libxml2
+  - libxml2-devel
+  # HTTPS / API clients: curl, httr, openssl
+  - libcurl
+  - openssl
+  # Compressors used by Rhdf5lib, Rsamtools, etc.
+  - zlib
+  - bzip2
+  - xz
+  # Image / plotting: Cairo, ragg, systemfonts, textshaping, png, tiff, jpeg
+  - cairo
+  - pango
+  - harfbuzz
+  - fribidi
+  - freetype
+  - fontconfig
+  - libpng
+  - libjpeg-turbo
+  - libtiff
+  # igraph (used by Seurat clustering) needs glpk for recent versions
+  - glpk
+  # stringi
+  - icu
+  # gert (libgit2) -- often pulled transitively by tidyverse helpers
+  - libgit2
+  # fs (transitive dep of sass -> bslib -> shiny) needs libuv headers
+  - libuv
+  # lme4 / nloptr (pulled by many statistics packages)
+  - nlopt
+  # Rmpfr / gmp; some Bioc statistics paths
+  - gmp
+  - mpfr
+  # GSL: occasionally pulled by Bioc (e.g. `gsl` package, `flowCore`)
+  - gsl
+  # units / sf (occasionally pulled transitively)
+  - udunits2

@@ -76,7 +76,15 @@ get_metadata <- function(dataset, field) {
 #'   layer, currently "data" for the in-memory backend). Reserved for
 #'   pseudobulk DE and future counts-vs-data workflows.
 get_gene_expression <- function(dataset, gene, layer = NULL) {
-  if (is.null(dataset) || !nzchar(gene %||% "")) return(NULL)
+  # Defensive NULL/NA/empty checks. `nzchar(NA)` is NA, which makes the
+  # surrounding `if(...)` throw "missing value where TRUE/FALSE needed",
+  # so callers that pass `state$selected_gene` while it's still
+  # `NA_character_` (set by `set_active_dataset()` when a dataset
+  # exposes no gene names) used to crash any renderUI calling
+  # `validate_gene()`. Treat NULL/NA/empty string as "no gene".
+  if (is.null(dataset)) return(NULL)
+  if (is.null(gene) || length(gene) != 1L) return(NULL)
+  if (is.na(gene) || !nzchar(gene)) return(NULL)
   be  <- as_expression_backend(dataset$expression)
   out <- backend_get_gene(be, gene, layer = layer)
   if (is.null(out)) return(NULL)

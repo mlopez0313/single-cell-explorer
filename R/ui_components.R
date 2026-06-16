@@ -477,3 +477,74 @@ microcaption <- function(...) {
 content_label <- function(text) {
   shiny::span(class = "content-label", text)
 }
+
+# ---- server-side gene picker ---------------------------------------------
+# Real scRNA-seq datasets routinely carry 20k-40k genes. Rendering all of
+# them client-side with `selectInput()` / `selectizeInput(choices = ...)`
+# is what triggers Shiny's
+#
+#   The select input "..." contains a large number of options;
+#   consider using server-side selectize for massively improved
+#   performance.
+#
+# warning, and it makes the picker visibly sluggish on typing. The
+# canonical fix is to render the input once with `choices = NULL` and
+# populate it from the server via `updateSelectizeInput(server = TRUE)`,
+# which ships only the matches for what the user is typing right now.
+#
+# We wrap the two halves of that pattern in tiny helpers so module code
+# stays readable and so we can apply a future tweak (e.g. a
+# `maxOptions` bump) in one place.
+
+#' Render a server-side selectize gene picker (UI half).
+#'
+#' Use this where you'd previously call
+#' `selectizeInput(id, label, choices = available_genes(ds))` --
+#' typically inside a `renderUI`. Render the input with no choices,
+#' then call [update_gene_picker()] from a `shiny::observe` to fill
+#' it in server-side.
+#'
+#' @param id           input id (no namespace; the caller wraps via `ns()`).
+#' @param label        input label (may be `NULL`).
+#' @param selected     initially-selected value (may be `NULL`).
+#' @param multiple     allow multi-select (default `FALSE`).
+#' @param placeholder  placeholder shown when empty.
+#' @param ...          forwarded to `shiny::selectizeInput()`.
+gene_picker_input <- function(id, label = "Gene",
+                              selected    = NULL,
+                              multiple    = FALSE,
+                              placeholder = "Pick a gene...",
+                              ...) {
+  shiny::selectizeInput(
+    inputId  = id,
+    label    = label,
+    choices  = NULL,
+    selected = selected,
+    multiple = multiple,
+    ...,
+    options  = list(placeholder = placeholder))
+}
+
+#' Populate a server-side selectize gene picker (server half).
+#'
+#' Wraps `updateSelectizeInput(server = TRUE)` so the gene list is
+#' sent to the client incrementally as the user types instead of all
+#' at once on first render. Safe to call with an empty `choices`
+#' vector (the picker just shows the placeholder).
+#'
+#' @param session   the module's `session` (NOT `session$ns(...)`).
+#' @param id        input id WITHOUT the namespace prefix; pass the
+#'                  same id you used in [gene_picker_input()].
+#' @param choices   character vector of gene names.
+#' @param selected  optional initial selection (defaults to whatever
+#'                  the input already holds).
+update_gene_picker <- function(session, id, choices,
+                               selected = NULL) {
+  if (is.null(choices)) choices <- character()
+  shiny::updateSelectizeInput(
+    session  = session,
+    inputId  = id,
+    choices  = choices,
+    selected = selected,
+    server   = TRUE)
+}

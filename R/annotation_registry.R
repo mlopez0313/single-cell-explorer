@@ -98,6 +98,37 @@ annotation_engine_spec <- function(id, name, category,
   )
 }
 
+#' Per-engine GitHub install map.
+#'
+#' Named list, keys are engine ids, values are NAMED character vectors
+#' where names are installed package names and values are
+#' `remotes::install_github()` specs (`owner/repo[@ref]`). Used by the
+#' annotation module to decide whether to pop the "Install + run"
+#' confirmation modal before invoking an engine.
+#'
+#' Engines whose dependencies live entirely on CRAN / Bioconductor (e.g.
+#' `manual`, `marker_score`, `singler`, `celltypist`) are intentionally
+#' absent. Add an entry here when introducing a new engine that needs a
+#' GitHub-only package.
+ANNOTATION_ENGINE_GITHUB_DEPS <- function() {
+  list(
+    azimuth = c(Azimuth = "satijalab/azimuth")
+  )
+}
+
+#' Missing GitHub deps for a given engine id (or `character()` if none).
+#'
+#' Returns a named character vector keyed by package name (same shape
+#' as `ANNOTATION_ENGINE_GITHUB_DEPS[[engine_id]]`) restricted to the
+#' subset that is NOT currently installed. Empty result = "ready to
+#' run".
+engine_missing_github_deps <- function(engine_id) {
+  spec <- ANNOTATION_ENGINE_GITHUB_DEPS()[[engine_id]]
+  if (is.null(spec) || !length(spec)) return(character())
+  installed <- vapply(names(spec), has_optional, logical(1))
+  spec[!installed]
+}
+
 #' The full registry. Function so it picks up changes during dev / testing.
 ANNOTATION_ENGINES <- function() {
   list(

@@ -163,11 +163,17 @@ pbmc8k_demo_dataset <- function(path = demo_dataset_path()) {
 # ---- Auto-build / ensure ---------------------------------------------------
 
 #' Packages required to auto-build the demo from the default
-#' `tenx_pbmc_data` source. Single source of truth so the can/cannot
+#' `tenx_pbmc_10x_cdn` source. Single source of truth so the can/cannot
 #' decision and the missing-package message stay in sync.
-.DEMO_AUTO_BUILD_PKGS <- c("Seurat", "SeuratObject", "Matrix",
-                           "TENxPBMCData", "SingleCellExperiment",
-                           "SummarizedExperiment")
+#'
+#' We deliberately do NOT list `TENxPBMCData` /
+#' `SingleCellExperiment` / `SummarizedExperiment` here: the default
+#' build path downloads the matrix from `cf.10xgenomics.com` directly
+#' and never touches ExperimentHub. Those Bioc packages are only
+#' needed for the legacy `tenx_pbmc_data` source (which is currently
+#' broken upstream because Bioconductor's Azure blob storage was
+#' retired in 2026 -- see `R/demo_dataset_build.R`).
+.DEMO_AUTO_BUILD_PKGS <- c("Seurat", "SeuratObject", "Matrix")
 
 #' Can the running R session auto-build the prepared PBMC 8k artifact?
 #'

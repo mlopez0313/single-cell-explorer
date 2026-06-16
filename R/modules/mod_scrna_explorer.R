@@ -113,18 +113,64 @@ mod_scrna_explorer_server <- function(id, state) {
                          choices  = available_metadata_fields(state$active_dataset),
                          selected = state$selected_metadata_field)
     })
+    # Use the shared server-side gene picker so the 32k-gene PBMC 8k
+    # dataset (and larger) doesn't ship its full vocabulary to the
+    # browser. See `R/ui_components.R::gene_picker_input()` for the
+    # rationale; identical pattern in mod_trajectory / mod_pathway_analysis
+    # / mod_marker_investigation / mod_imputation.
     output$gene_ui <- shiny::renderUI({
-      shiny::selectizeInput(ns("gene"), "Gene (FeaturePlot)",
-                            choices  = available_genes(state$active_dataset),
-                            selected = state$selected_gene,
-                            options  = list(placeholder = "Pick a gene..."))
+      gene_picker_input(ns("gene"), "Gene (FeaturePlot)",
+                        selected = state$selected_gene)
     })
 
-    # Push local inputs back into shared state.
+    # Fill the picker's choices ONCE per dataset. Reading
+    # `state$selected_gene` via `isolate()` so this observer does NOT
+    # re-fire (and re-transmit the full 32k-gene choice list) every
+    # time another module updates the shared gene. The lighter
+    # selection-sync observer below handles selection drift.
+    shiny::observe({
+      ds <- state$active_dataset
+      shiny::req(ds)
+      update_gene_picker(session, "gene",
+                         choices  = available_genes(ds),
+                         selected = shiny::isolate(state$selected_gene))
+    })
+
+    # Lightweight selection sync. Fires when `state$selected_gene`
+    # changes from another module (Marker Investigation push, etc.).
+    # Two important guards:
+    #   - `nzchar(g)` so a transient empty value from a selectize
+    #     update never propagates here.
+    #   - `identical(input$gene, g)` no-op: if the picker is already
+    #     showing this gene, don't send another updateSelectizeInput.
+    #     Without this the observer self-loops with the
+    #     `observeEvent(input$gene, ...)` below every time the user
+    #     picks a gene, which is what was causing the FeaturePlot to
+    #     "reset almost instantly" -- the cycle's update messages
+    #     race with the user's pick and one of them clears the
+    #     selection.
+    shiny::observe({
+      g <- state$selected_gene
+      if (is.null(g) || !nzchar(g)) return()
+      cur <- shiny::isolate(input$gene)
+      if (isTRUE(identical(cur, g))) return()
+      shiny::updateSelectizeInput(session, "gene", selected = g)
+    })
+
+    # Push local inputs back into shared state. The `input$gene`
+    # handler is guarded against empty values because
+    # `updateSelectizeInput(server = TRUE)` can briefly fire a
+    # `change` event with an empty selection while it swaps choices.
+    # Without the guard, that transient `""` would overwrite
+    # `state$selected_gene` and immediately clear the FeaturePlot.
     shiny::observeEvent(input$assay,     state$selected_assay          <- input$assay,     ignoreInit = TRUE)
     shiny::observeEvent(input$reduction, state$selected_reduction      <- input$reduction, ignoreInit = TRUE)
     shiny::observeEvent(input$metadata,  state$selected_metadata_field <- input$metadata,  ignoreInit = TRUE)
-    shiny::observeEvent(input$gene,      state$selected_gene           <- input$gene,      ignoreInit = TRUE)
+    shiny::observeEvent(input$gene, {
+      if (!is.null(input$gene) && nzchar(input$gene)) {
+        state$selected_gene <- input$gene
+      }
+    }, ignoreInit = TRUE)
 
     # ---- Summary band ----------------------------------------------------
     # Content-side persistent summary bar (distinct from the workspace's
